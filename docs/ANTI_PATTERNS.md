@@ -561,7 +561,7 @@ test('cred env fills ${VAR} placeholder', () => {
 - PM 4 步硬验走 git stat = 唯一权威
 - 0.4% 弹性留给 lint disable 注释 + commit body 末行换行差异
 
-**PM 决策模板**：
+**PM 决策模板**:
 
 ```
 git stat > 510 = 退
@@ -570,6 +570,66 @@ git stat < 495 = 接受（subagent 留了 buffer）
 ```
 
 ---
+
+### F-7: PR 500 行硬约束按"块类型"分档弹性 (PR 12b 教训)
+
+**v2 启动期 PR 12b 教训**（2026-06-06）：
+
+- F-4 拍板: 500 硬约束 = `git show --stat` 整数行, 0.4% 弹性 ≤ 510
+- PR 12b (adapter 端到端, 含 http server + 飞书事件流 + mock fetch + 2 fixture) = 647 insertions = **超 27% 严重超界**
+- 实质功能合格: 251/251 tests pass + lint clean + size-check OK + A-4 教训遵守 + hygiene 红线遵守
+- **F-4 一刀切 510 拍板错了**: 不同"块类型"复杂度差异巨大, protocol/adapter 端到端必须 700 才合理
+
+**v2 规则**（**F-4 替代**）：
+
+PR 范围按"块类型"分档弹性（**F-4 500 一刀切升级为 F-7 分档**）:
+
+| 块类型                                                                              | PR 范围  | 弹性上限 | 例子       |
+| ----------------------------------------------------------------------------------- | -------- | -------- | ---------- |
+| **core 骨架** (event-bus / config-resolver / container / error-handler / lifecycle) | 4-6 文件 | **510**  | PR 2-5     |
+| **provider 骨架** (IProvider + ProviderBase + registry)                             | 4-6 文件 | **510**  | PR 6       |
+| **provider 接线** (1 provider 1 协议)                                               | 3-5 文件 | **510**  | PR 9       |
+| **provider 流式** (流式协议 + stream 委派)                                          | 4-5 文件 | **510**  | PR 10      |
+| **plugin 骨架** (IPlugin + registry)                                                | 4 文件   | **510**  | PR 11a     |
+| **plugin loader** (5 阶段 + example + fixtures)                                     | 5 文件   | **510**  | PR 11b     |
+| **protocol 骨架** (IProtocol + ProtocolBase + tool-call + v1 飞书 6 修法)           | 4-6 文件 | **700**  | PR 7a/7b   |
+| **protocol openai** (非流式协议 + v1 飞书 6 修法覆盖)                               | 3 文件   | **700**  | PR 8       |
+| **adapter 端到端** (含 http server + 事件流 + mock fetch)                           | 4-5 文件 | **700**  | PR 12a/12b |
+| **memory backend** (interface + sqlite/vector impl)                                 | 3-5 文件 | **510**  | PR 13+     |
+| **skill system**                                                                    | 3-5 文件 | **510**  | PR 14+     |
+| **anthropic 协议**                                                                  | 3 文件   | **700**  | PR 15+     |
+| **integration test**                                                                | 1-3 文件 | **300**  | PR 16+     |
+
+**PM 决策模板** (替代 F-4 旧规则):
+
+```
+查该 PR 属于哪个"块类型" → 看对应弹性上限
+- git stat > 该块弹性上限: 退 (拆 PR)
+- git stat ≤ 该块弹性上限: 接受 + commit body 注明
+- 例: PR 12b 647 ≤ adapter 700 弹性, 接受
+- 例: PR 11b 504 ≤ plugin loader 510 弹性, 接受
+```
+
+**反 anti-pattern**（F-4 教训的延伸）:
+
+- ❌ **F-4 一刀切 510 拍板** (PR 12b 27% 超界暴露一刀切错)
+- ❌ 不查块类型就用 510 拍板 (PM 4 步硬验第 2 步需先查块类型)
+- ❌ adapter 端到端 PR 拆 2 个 (PR 12a/12b 已经合理, 不必拆 12c)
+- ❌ prompt 写 ≤ 200 行单文件 但 subagent 写 250 行不退回 (单文件 200 仍是单文件硬约束, PR 范围按 F-7 分档)
+
+**subagent prompt 必带"块类型 + 弹性"章节**:
+
+派活时 prompt "② 背景" 末尾加:
+
+```
+**本 PR 块类型**: [块类型 from F-7 表]
+**本 PR 弹性上限**: [510 / 700 / 300 from F-7 表]
+**本 PR 总预算**: ≤ N files / M insertions (≤ 弹性上限)
+```
+
+---
+
+## 监督机制
 
 ### F-5: cherry-pick 拆 commit 时漏 rm 文件 → main 状态污染
 
@@ -751,9 +811,10 @@ pre-commit hook (lint-staged + size-check + commitlint) 跑完后, 失败时:
 | F           | F-4 | PR 500 行约束按主观自报不算 git stat    | PR 5 修复     |
 | F           | F-5 | cherry-pick 拆 commit 时漏 rm 文件      | PR 7 修复     |
 | F           | F-6 | pm 操作 git 缺"4 步自查 + 3 步验证"反射 | PR 7/8/9 修复 |
+| F           | F-7 | pr 500 行硬约束按"块类型"分档弹性       | PR 12b 修复   |
 
-**共 23 条反模式**（v1 抄 17 条 + v2 启动期新增 6 条 F-1/2/3/4/5/6）。
+**共 24 条反模式**（v1 抄 17 条 + v2 启动期新增 7 条 F-1/2/3/4/5/6/7）。
 
 ---
 
-_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训) + F-5 (PR 7 拆 commit 教训) + F-6 (PR 7/8/9 反复 bug 教训)。F-4: 500 行硬约束走 git stat, 0.4% 弹性。F-5: cherry-pick 拆 commit 高危, KEEP+DELETE 双重核对。F-6: pm 操作 git 必走 4 步自查 + 3 步验证, subagent prompt 必带 commit 重试上限。_
+_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训) + F-5 (PR 7 拆 commit 教训) + F-6 (PR 7/8/9 反复 bug 教训) + F-7 (PR 12b 27% 超界教训)。F-4: 500 行硬约束走 git stat, 0.4% 弹性。F-5: cherry-pick 拆 commit 高危, KEEP+DELETE 双重核对。F-6: pm 操作 git 必走 4 步自查 + 3 步验证, subagent prompt 必带 commit 重试上限。F-7: pr 500 行约束按"块类型"分档 (protocol/adapter 700, 其他 510, integration 300), 替代 F-4 一刀切。_
