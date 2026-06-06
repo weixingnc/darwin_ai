@@ -537,6 +537,40 @@ test('cred env fills ${VAR} placeholder', () => {
 
 ---
 
+### F-4: PR 500 行硬约束按"git 跟踪行"还是"subagent 自报净 lines"模糊
+
+**v2 启动期 PR 5 教训**（2026-06-06）：
+
+- 单 PR < 500 行硬约束（C-1 派活规则的 budget）
+- subagent commit body 写 `total: 499 lines (under 500 budget)`
+- 但 `git show --stat` 显示 **502 insertions**（超 2 行 = 0.4% 边界）
+- 差额来自：每文件末行换行（git 跟踪 +1/文件，6 文件 = +6 行）+ commit body 内代码块描述（主观统计漏算）
+- PM 4 步硬验走 `git show --stat`（客观），与 subagent 自报（主观）冲突
+
+**v2 规则**：
+
+- **500 硬约束 = `git show --stat` 整数行（git 跟踪行）**——客观、可复现
+- **0.4% 弹性 = `git stat` ≤ 510 行仍视作合格**
+- **不再为 ≤ 5 行偏差退回 subagent**（PM 接手改 2 行的代价比 5 行偏差大）
+- 超 510 行 = 退回重做
+
+**理由**：
+
+- subagent 自报（commit body 的"total: 499 lines"）= 主观、易漏算
+- git stat = 客观、机器读数
+- PM 4 步硬验走 git stat = 唯一权威
+- 0.4% 弹性留给 lint disable 注释 + commit body 末行换行差异
+
+**PM 决策模板**：
+
+```
+git stat > 510 = 退
+git stat ≤ 510 且 ≥ 495 = 接受 + 写 commit body 注明差额
+git stat < 495 = 接受（subagent 留了 buffer）
+```
+
+---
+
 ## 监督机制
 
 - **PR review**：reviewer 看到任一反模式 → reject
@@ -548,31 +582,32 @@ test('cred env fills ${VAR} placeholder', () => {
 
 ## ANTI_PATTERNS 总表（速查）
 
-| 类别        | #   | 反模式                         | v1 教训位置 |
-| ----------- | --- | ------------------------------ | ----------- |
-| A 模块拆分  | A-1 | 按行数拆模块                   | retro-03    |
-| A           | A-2 | 跨模块直接 import 业务函数     | retro-03    |
-| A           | A-3 | Provider 同一份写 2 遍         | retro-03    |
-| A           | A-4 | Config 硬读 process.env        | retro-02    |
-| A           | A-5 | HookManager 和 EventBus 共存   | retro-03    |
-| B Hygiene   | B-1 | 文档承诺 ignore ≠ 实际 ignore  | retro-02/03 |
-| B           | B-2 | 散点活不分类就接               | retro-01    |
-| B           | B-3 | working tree 脏文件未清理      | retro-01    |
-| C 派活      | C-1 | 派活 prompt 只给目标不给验收   | retro-02    |
-| C           | C-2 | 信 subagent 自报               | retro-02    |
-| C           | C-3 | 派活没带 backup 5 件套就改凭据 | retro-02    |
-| C           | C-4 | spawn 不带 session-key 前缀    | retro-02    |
-| D Tool Call | D-1 | tool_calls 格式错              | retro-03    |
-| D           | D-2 | 无 MAX_TOOL_ROUNDS 限制        | retro-03    |
-| D           | D-3 | 工具执行无 try/catch           | retro-03    |
-| E PM 节奏   | E-1 | W2 准备期当 W2 启动期          | retro-01    |
-| E           | E-2 | 周报只讲做了什么不讲没做什么   | retro-01    |
-| F v2 启动期 | F-1 | lint-staged 不分文件类型       | PR 1 修复   |
-| F           | F-2 | mini-YAML 解析不写嵌套支持     | PR 3 修复   |
-| F           | F-3 | 测试设计按理想逻辑而非实际业务 | PR 3 修复   |
+| 类别        | #   | 反模式                               | v1 教训位置 |
+| ----------- | --- | ------------------------------------ | ----------- |
+| A 模块拆分  | A-1 | 按行数拆模块                         | retro-03    |
+| A           | A-2 | 跨模块直接 import 业务函数           | retro-03    |
+| A           | A-3 | Provider 同一份写 2 遍               | retro-03    |
+| A           | A-4 | Config 硬读 process.env              | retro-02    |
+| A           | A-5 | HookManager 和 EventBus 共存         | retro-03    |
+| B Hygiene   | B-1 | 文档承诺 ignore ≠ 实际 ignore        | retro-02/03 |
+| B           | B-2 | 散点活不分类就接                     | retro-01    |
+| B           | B-3 | working tree 脏文件未清理            | retro-01    |
+| C 派活      | C-1 | 派活 prompt 只给目标不给验收         | retro-02    |
+| C           | C-2 | 信 subagent 自报                     | retro-02    |
+| C           | C-3 | 派活没带 backup 5 件套就改凭据       | retro-02    |
+| C           | C-4 | spawn 不带 session-key 前缀          | retro-02    |
+| D Tool Call | D-1 | tool_calls 格式错                    | retro-03    |
+| D           | D-2 | 无 MAX_TOOL_ROUNDS 限制              | retro-03    |
+| D           | D-3 | 工具执行无 try/catch                 | retro-03    |
+| E PM 节奏   | E-1 | W2 准备期当 W2 启动期                | retro-01    |
+| E           | E-2 | 周报只讲做了什么不讲没做什么         | retro-01    |
+| F v2 启动期 | F-1 | lint-staged 不分文件类型             | PR 1 修复   |
+| F           | F-2 | mini-YAML 解析不写嵌套支持           | PR 3 修复   |
+| F           | F-3 | 测试设计按理想逻辑而非实际业务       | PR 3 修复   |
+| F           | F-4 | PR 500 行约束按主观自报不算 git stat | PR 5 修复   |
 
-**共 20 条反模式**（v1 抄 17 条 + v2 启动期新增 3 条）。
+**共 21 条反模式**（v1 抄 17 条 + v2 启动期新增 4 条 F-1/2/3/4）。
 
 ---
 
-_2026-06-06，老王（Hermes）记录。v2 启动日 D-0 第一件事：把这份文档 1:1 抄进 `darwin_v2/docs/ANTI_PATTERNS.md`。v2 PR 1-3 启动期新增 3 条（F-1/2/3）。_
+_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训)。F-4 拍板：500 行硬约束走 git stat，0.4% 弹性。_
