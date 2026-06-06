@@ -2,29 +2,25 @@
  *  Anthropic SSE: event: <type>\ndata: <json>\n\n. 6 event types: message_start → message_stop.
  *  Yield shape: { content, toolCalls, finishReason, raw } / { type: 'done' } / { type: 'error', error }.
  *  A-3: buildStreamRequest delegates to PR 14a1. PR 7b reuse: parseAssistantToolCalls for v2 tool_calls.
- *  A-4: no process.env reads. D-3: ErrorHandler.wrap; never throws. F-7: ≤ 280 lines.
- *  Skeleton only (v2 启动哲学): real Anthropic API wiring lives in PR 14b. */
+ *  A-4: no process.env reads. D-3: ErrorHandler.wrap; never throws. Skeleton only — real API in PR 14b. */
 
 import { ErrorHandler } from '../core/error-handler.js';
 import { createAnthropicProtocol } from './anthropic-protocol.js';
 import { parseAssistantToolCalls } from './protocol/tool-call.js';
 
-const STREAM_ERROR_EVENT = 'provider:stream:error';
-const PROVIDER_NAME = 'anthropic-stream';
+const SE = 'provider:stream:error';
 
-/** Split a buffer into complete SSE event blocks (terminated by \n\n) + a remainder. */
 function splitEvents(buffer) {
   const parts = buffer.split(/\r?\n\r?\n/);
-  return { events: parts.slice(0, -1), rest: parts[parts.length - 1] || '' };
+  return { events: parts.slice(0, -1), rest: parts.at(-1) || '' };
 }
 
-/** Extract `event:` + `data:` payloads from a single SSE event block. */
 function extractSseEvent(block) {
-  let eventType = null;
-  let dataPayload = null;
+  let eventType = null,
+    dataPayload = null;
   for (const raw of block.split(/\r?\n/)) {
     const line = raw.trim();
-    if (line.length === 0 || line.startsWith(':')) {
+    if (!line || line.startsWith(':')) {
       continue;
     }
     if (line.startsWith('event:')) {
@@ -36,21 +32,21 @@ function extractSseEvent(block) {
   return { eventType, dataPayload };
 }
 
-function handleMessageStart(state, parsed) {
-  if (parsed.message && typeof parsed.message === 'object') {
-    state.message = parsed.message;
-    if (parsed.message.usage && typeof parsed.message.usage === 'object') {
-      state.usage = { ...state.usage, ...parsed.message.usage };
+function onMessageStart(state, p) {
+  if (p.message && typeof p.message === 'object') {
+    state.message = p.message;
+    if (p.message.usage && typeof p.message.usage === 'object') {
+      state.usage = { ...state.usage, ...p.message.usage };
     }
   }
   return 'skip';
 }
 
-function handleContentBlockStart(state, parsed) {
-  if (parsed.content_block && parsed.content_block.type === 'tool_use') {
-    state.toolCallAcc.set(parsed.index, {
-      id: typeof parsed.content_block.id === 'string' ? parsed.content_block.id : '',
-      name: typeof parsed.content_block.name === 'string' ? parsed.content_block.name : '',
+function onContentBlockStart(state, p) {
+  if (p.content_block && p.content_block.type === 'tool_use') {
+    state.toolCallAcc.set(p.index, {
+      id: typeof p.content_block.id === 'string' ? p.content_block.id : '',
+      name: typeof p.content_block.name === 'string' ? p.content_block.name : '',
       inputJson: '',
       input: null,
     });
@@ -59,27 +55,27 @@ function handleContentBlockStart(state, parsed) {
   return 'skip';
 }
 
-function handleContentBlockDelta(state, parsed) {
-  const delta = parsed.delta;
-  if (!delta || typeof delta !== 'object') {
+function onContentBlockDelta(state, p) {
+  const d = p.delta;
+  if (!d || typeof d !== 'object') {
     return 'skip';
   }
-  if (delta.type === 'text_delta' && typeof delta.text === 'string') {
-    state.content += delta.text;
+  if (d.type === 'text_delta' && typeof d.text === 'string') {
+    state.content += d.text;
     return 'yield';
   }
-  if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
-    const acc = state.toolCallAcc.get(parsed.index);
+  if (d.type === 'input_json_delta' && typeof d.partial_json === 'string') {
+    const acc = state.toolCallAcc.get(p.index);
     if (acc) {
-      acc.inputJson += delta.partial_json;
+      acc.inputJson += d.partial_json;
     }
     return 'yield';
   }
   return 'skip';
 }
 
-function handleContentBlockStop(state, parsed) {
-  const acc = state.toolCallAcc.get(parsed.index);
+function onContentBlockStop(state, p) {
+  const acc = state.toolCallAcc.get(p.index);
   if (acc && acc.input === null) {
     try {
       acc.input = JSON.parse(acc.inputJson);
@@ -91,32 +87,31 @@ function handleContentBlockStop(state, parsed) {
   return 'skip';
 }
 
-function handleMessageDelta(state, parsed) {
-  if (parsed.delta && parsed.delta.stop_reason) {
-    state.finishReason = parsed.delta.stop_reason;
+function onMessageDelta(state, p) {
+  if (p.delta && p.delta.stop_reason) {
+    state.finishReason = p.delta.stop_reason;
   }
-  if (parsed.usage && typeof parsed.usage === 'object') {
-    state.usage = { ...state.usage, ...parsed.usage };
+  if (p.usage && typeof p.usage === 'object') {
+    state.usage = { ...state.usage, ...p.usage };
   }
   return 'yield';
 }
 
-/** Map one Anthropic stream event onto the accumulator. Returns yield directive. */
 function applyEvent(state, parsed) {
   if (!parsed || typeof parsed !== 'object') {
     return 'skip';
   }
   switch (parsed.type) {
     case 'message_start':
-      return handleMessageStart(state, parsed);
+      return onMessageStart(state, parsed);
     case 'content_block_start':
-      return handleContentBlockStart(state, parsed);
+      return onContentBlockStart(state, parsed);
     case 'content_block_delta':
-      return handleContentBlockDelta(state, parsed);
+      return onContentBlockDelta(state, parsed);
     case 'content_block_stop':
-      return handleContentBlockStop(state, parsed);
+      return onContentBlockStop(state, parsed);
     case 'message_delta':
-      return handleMessageDelta(state, parsed);
+      return onMessageDelta(state, parsed);
     case 'message_stop':
       return 'done';
     case 'error':
@@ -126,7 +121,6 @@ function applyEvent(state, parsed) {
   }
 }
 
-/** Build v2 normalized tool_calls from the accumulator via PR 7b. */
 function snapshotToolCalls(state) {
   if (state.toolCallAcc.size === 0) {
     return [];
@@ -135,16 +129,11 @@ function snapshotToolCalls(state) {
   const wire = sorted.map((k) => {
     const acc = state.toolCallAcc.get(k);
     const args = typeof acc.input === 'string' ? acc.input : JSON.stringify(acc.input || {});
-    return {
-      id: acc.id,
-      type: 'function',
-      function: { name: acc.name, arguments: args },
-    };
+    return { id: acc.id, type: 'function', function: { name: acc.name, arguments: args } };
   });
   return parseAssistantToolCalls({ role: 'assistant', tool_calls: wire });
 }
 
-/** Build the per-yield snapshot (parallel to openai stream shape). */
 function snapshot(state) {
   return {
     content: state.content,
@@ -154,12 +143,10 @@ function snapshot(state) {
   };
 }
 
-/** Create a fresh state object for a new stream. */
 function newState() {
   return { content: '', finishReason: null, usage: {}, message: null, toolCallAcc: new Map() };
 }
 
-/** Process a single SSE event block. Returns {kind, payload, error}. */
 function processEventBlock(state, ev, safeParse, bus) {
   const { eventType, dataPayload } = extractSseEvent(ev);
   if (dataPayload === null || dataPayload.length === 0) {
@@ -167,7 +154,7 @@ function processEventBlock(state, ev, safeParse, bus) {
   }
   const parsed = safeParse(dataPayload);
   if (!parsed.ok) {
-    bus.emit(STREAM_ERROR_EVENT, { provider: 'anthropic', error: parsed.error });
+    bus.emit(SE, { provider: 'anthropic', error: parsed.error });
     return { kind: 'yield-error', error: parsed.error };
   }
   if (!eventType && parsed.value && parsed.value.type) {
@@ -182,28 +169,22 @@ function processEventBlock(state, ev, safeParse, bus) {
   }
   if (directive === 'error') {
     const errInfo = parsed.value.error || parsed.value;
-    bus.emit(STREAM_ERROR_EVENT, { provider: 'anthropic', error: errInfo });
+    bus.emit(SE, { provider: 'anthropic', error: errInfo });
     return { kind: 'yield-error', error: errInfo };
   }
   return { kind: 'yield-snapshot' };
 }
 
 export class AnthropicProtocolStream {
-  /** @param {{eventBus:import('../core/event-bus.js').EventBus}} opts */
   constructor(opts) {
     if (!opts || !opts.eventBus) {
       throw new TypeError('[anthropic-stream] constructor: opts.eventBus is required');
     }
-    this.name = PROVIDER_NAME;
+    this.name = 'anthropic-stream';
     this._bus = opts.eventBus;
-    // A-3: reuse PR 14a1's buildRequest so the stream layer never diverges.
     this._fallback = createAnthropicProtocol({ eventBus: opts.eventBus });
   }
 
-  /**
-   * Build a stream:true Anthropic request body. Delegates to PR 14a1's
-   * buildRequest then flips stream:true. Returns ErrorHandler-shaped entry.
-   */
   async buildStreamRequest(messages, options = {}, model = '') {
     return ErrorHandler.wrapAsync(
       async () => {
@@ -217,11 +198,6 @@ export class AnthropicProtocolStream {
     )();
   }
 
-  /**
-   * Parse an Anthropic SSE stream from a fetch Response. Async generator.
-   * NEVER throws. Per-chunk errors yield {type:'error'} + emit provider:stream:error.
-   * @param {Response|{body:ReadableStream|null}} response
-   */
   async *parseStream(response, _options = {}) {
     if (!response || !response.body) {
       yield { type: 'done' };
@@ -233,7 +209,6 @@ export class AnthropicProtocolStream {
     const state = newState();
     const safeParse = (raw) =>
       ErrorHandler.wrap(() => JSON.parse(raw), { phase: 'parseStreamChunk' })();
-
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -244,22 +219,21 @@ export class AnthropicProtocolStream {
         const { events, rest } = splitEvents(buffer);
         buffer = rest;
         for (const ev of events) {
-          const result = processEventBlock(state, ev, safeParse, this._bus);
-          if (result.kind === 'skip') {
+          const r = processEventBlock(state, ev, safeParse, this._bus);
+          if (r.kind === 'skip') {
             continue;
           }
-          if (result.kind === 'done') {
+          if (r.kind === 'done') {
             yield { type: 'done' };
             return;
           }
-          if (result.kind === 'yield-error') {
-            yield { type: 'error', error: result.error };
+          if (r.kind === 'yield-error') {
+            yield { type: 'error', error: r.error };
             continue;
           }
           yield snapshot(state);
         }
       }
-      // Stream ended without an explicit message_stop — still close cleanly.
       yield { type: 'done' };
     } finally {
       try {
@@ -271,11 +245,6 @@ export class AnthropicProtocolStream {
   }
 }
 
-/**
- * Factory: IProtocol-shaped object backed by an AnthropicProtocolStream instance.
- * Mirrors the createOpenAICompatibleProtocol pattern (PR 8) + createAnthropicProtocol (PR 14a1).
- * @param {{eventBus:import('../core/event-bus.js').EventBus}} opts
- */
 export function createAnthropicProtocolStream(opts) {
   const i = new AnthropicProtocolStream(opts);
   return {
