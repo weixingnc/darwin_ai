@@ -1,0 +1,9 @@
+{
+  "object": "list",
+  "data": [
+    { "id": "gpt-4o-mini", "object": "model", "created": 1749216000, "owned_by": "openai" },
+    { "id": "gpt-4o", "object": "model", "created": 1749000000, "owned_by": "openai" },
+    { "id": "deepseek-chat", "object": "model", "created": 1748000000, "owned_by": "deepseek" },
+    { "id": "qwen-plus", "object": "model", "created": 1747000000, "owned_by": "alibaba" }
+  ]
+}
