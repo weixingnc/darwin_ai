@@ -63,9 +63,9 @@ describe('full-stack', () => {
 
   after(async () => {
     globalThis.fetch = origFetch;
-    if (webhookServer) await new Promise((r) => webhookServer.close(() => r()));
+    if (webhookServer) {await new Promise((r) => webhookServer.close(() => r()));}
     bus.clear();
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) {rmSync(dir, { recursive: true, force: true });}
   });
 
   test('hygiene: no real app_id / api_key in this test file', () => {

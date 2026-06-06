@@ -43,14 +43,14 @@ describe('event-bus cross-module', () => {
   after(async () => {
     globalThis.fetch = origFetch;
     bus.clear();
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) {rmSync(dir, { recursive: true, force: true });}
   });
 
   test('4 modules all on EventBus (zero HookManager)', () => {
     const c = { plugin: 0, adapter: 0, memory: 0, provider: 0 };
     const pairs = [[EVENTS.PLUGIN_REGISTER, 'plugin'], [EVENTS.ADAPTER_REGISTER, 'adapter'], [EVENTS.MEMORY_STORE, 'memory'], [EVENTS.PROVIDER_CALL_BEFORE, 'provider']];
-    for (const [e, k] of pairs) bus.on(e, () => c[k]++);
-    for (const [e] of pairs) bus.emit(e, {});
+    for (const [e, k] of pairs) {bus.on(e, () => c[k]++);}
+    for (const [e] of pairs) {bus.emit(e, {});}
     assert.equal(c.plugin + c.adapter + c.memory + c.provider, 4);
     assert.equal(bus.constructor.name, 'EventBus');
   });
@@ -92,7 +92,7 @@ describe('event-bus cross-module', () => {
     let good = 0;
     const handlers = [async () => { throw new Error('h1'); }, async () => { good++; },
                       async () => { throw new Error('h2'); }, async () => { good++; }];
-    for (const h of handlers) bus.on('it:iso', h);
+    for (const h of handlers) {bus.on('it:iso', h);}
     bus.emit('it:iso', {});
     await new Promise((r) => setImmediate(r));
     assert.equal(good, 2);

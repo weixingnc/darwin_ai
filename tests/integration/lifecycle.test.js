@@ -37,7 +37,7 @@ describe('lifecycle cross-module', () => {
     const { c, bus } = mkContainer();
     const order = [EVENTS.LIFECYCLE_BOOTSTRAP_START, 'lifecycle:bootstrap:init', 'lifecycle:bootstrap:config', 'lifecycle:bootstrap:container', 'lifecycle:bootstrap:registry', 'lifecycle:bootstrap:ready', EVENTS.LIFECYCLE_BOOTSTRAP_DONE, EVENTS.CORE_READY];
     const seen = [];
-    for (const e of order) bus.on(e, () => seen.push(e));
+    for (const e of order) {bus.on(e, () => seen.push(e));}
     assert.equal(bootstrap({ container: c }), c);
     assert.deepEqual(seen, order);
   });
@@ -75,7 +75,7 @@ describe('lifecycle cross-module', () => {
     const { c, bus } = mkContainer({ get: () => { throw new Error('boom'); }, invalidate: () => undefined });
     const errors = []; const phases = [];
     bus.on(EVENTS.CORE_ERROR, (e) => errors.push(e));
-    for (const p of ['init', 'config', 'container', 'registry', 'ready']) bus.on(`lifecycle:bootstrap:${p}`, () => phases.push(p));
+    for (const p of ['init', 'config', 'container', 'registry', 'ready']) {bus.on(`lifecycle:bootstrap:${p}`, () => phases.push(p));}
     bootstrap({ container: c });
     assert.deepEqual(phases, ['init', 'config', 'container', 'registry', 'ready']);
     assert.equal(errors.length, 1);
