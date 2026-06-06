@@ -571,6 +571,70 @@ git stat < 495 = 接受（subagent 留了 buffer）
 
 ---
 
+### F-5: cherry-pick 拆 commit 时漏 rm 文件 → main 状态污染
+
+**v2 启动期 PR 7 教训**（2026-06-06）：
+
+- F-4 触发：PR 7 git stat 736 > 510 弹性上限
+- PM 决策：拆 PR 7a (interface + base + 2 test = 409 行) + PR 7b (tool-call + 1 test = 327 行)
+- PM 拆 commit 流程（**高危手工操作**）:
+  1. `git checkout -b feat/pr7a-protocol-skeleton`
+  2. `git cherry-pick 136b869` → 引入 6 文件
+  3. `git rm provider/protocol/tool-call.js tests/protocol-tool-call.test.js` → 删 2 文件
+  4. `git commit --amend` → PR 7a (4 文件 / 409 行)
+  5. `git checkout -b feat/pr7b-tool-call`
+  6. `git cherry-pick 136b869` → 引入 6 文件（main 上已存在 interface/base/2 test）
+  7. `git rm provider/protocol/interface.js provider/protocol/base.js tests/protocol-interface.test.js tests/protocol-base.test.js` → **误删 4 文件（含 PR 7a 的 2 test）**
+  8. `git commit --amend` → PR 7b (2 文件 / 327 行)
+  9. `git merge --no-ff` → main 上只剩 tool-call.js + 1 test，**缺 PR 7a 的 2 test 文件**
+- **Bug 结果**: main 跑 `npm test` = 126（110 baseline + 16 tool-call），**缺 18 skeleton tests**
+- **下游污染**: PR 8 subagent 从 main 拉分支 = 126 tests baseline（不知道 main 应是 144）
+- **PM 4 步硬验发现**: 126 ≠ 144, git log 显示 main 历史不连续
+
+**v2 规则**：
+
+- **cherry-pick 拆 commit = 高危操作**，**必须**先列 `git ls-files` 双重核对
+- **拆 commit 前**: 写"要保留的文件清单 (KEEP)" + "要删除的文件清单 (DELETE)" + 逐项打勾
+- **拆 commit 后 + merge 前**: 在源分支跑 `npm test` 验证 baseline + 保留测试通过
+- **merge 后**: 在 main 跑 `npm test` 验证总测试数 = 之前 baseline + PR 增量
+
+**Cherry-pick 拆 commit 决策模板（**必走**）**：
+
+```
+step 1: git checkout main
+step 2: git checkout -b feat/pr<X>a-<name>
+step 3: git cherry-pick <original_commit_sha>
+step 4: 写 KEEP 清单 + DELETE 清单（**双重核对, 每个文件手打**）
+step 5: git rm <DELETE>     ← 复制粘贴, 不通配符
+step 6: git status          ← **人工核对 staged files = KEEP 清单**
+step 7: git commit --amend
+step 8: npm test            ← **验证 baseline + 保留测试通过**（不通过 = 立刻 abort, 回去改）
+step 9: git checkout main && git merge --no-ff
+step 10: npm test           ← **验证 main 总测试数 = 之前 baseline + PR 增量**（不通过 = git reset --hard + 重做）
+```
+
+**反 anti-pattern**：
+
+- ❌ `git rm *.js` 通配符删（漏文件 / 错文件）
+- ❌ cherry-pick 后不 list 立刻 rm
+- ❌ merge 前不验证测试 baseline
+- ❌ merge 后不在 main 跑 npm test 验证
+- ✅ 用 `git diff --name-only <original>..HEAD` 列出 PR 实际改的文件
+- ✅ 拆 commit 前**画文件清单图**（KEEP vs DELETE 双向打勾）
+
+**PM 自查清单**（**每次拆 commit 前必走**）:
+
+```
+□ 写出 KEEP 清单（每行一个文件路径）
+□ 写出 DELETE 清单（每行一个文件路径）
+□ KEEP ∪ DELETE = cherry-pick 引入的全部文件（**没有遗漏**）
+□ KEEP ∩ DELETE = ∅（**没有重复**）
+□ npm test 在 KEEP 后的 working tree 通过
+□ merge 后 main npm test 总数 = baseline + PR 增量
+```
+
+---
+
 ## 监督机制
 
 - **PR review**：reviewer 看到任一反模式 → reject
@@ -605,9 +669,10 @@ git stat < 495 = 接受（subagent 留了 buffer）
 | F           | F-2 | mini-YAML 解析不写嵌套支持           | PR 3 修复   |
 | F           | F-3 | 测试设计按理想逻辑而非实际业务       | PR 3 修复   |
 | F           | F-4 | PR 500 行约束按主观自报不算 git stat | PR 5 修复   |
+| F           | F-5 | cherry-pick 拆 commit 时漏 rm 文件   | PR 7 修复   |
 
-**共 21 条反模式**（v1 抄 17 条 + v2 启动期新增 4 条 F-1/2/3/4）。
+**共 22 条反模式**（v1 抄 17 条 + v2 启动期新增 5 条 F-1/2/3/4/5）。
 
 ---
 
-_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训)。F-4 拍板：500 行硬约束走 git stat，0.4% 弹性。_
+_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训) + F-5 (PR 7 拆 commit 教训)。F-4: 500 行硬约束走 git stat，0.4% 弹性。F-5: cherry-pick 拆 commit 高危，KEEP+DELETE 双重核对。_
