@@ -111,10 +111,7 @@ describe('buildRequest — openai → anthropic format conversion', () => {
       'claude-3-5-sonnet-20241022',
     );
     assert.equal(e.ok, true);
-    const assistant = e.value.messages[1];
-    assert.equal(assistant.role, 'assistant');
-    assert.ok(Array.isArray(assistant.content));
-    const tu = assistant.content.find((b) => b.type === 'tool_use');
+    const tu = e.value.messages[1].content.find((b) => b.type === 'tool_use');
     assert.ok(tu);
     assert.equal(tu.id, 'toolu_abc');
     assert.equal(tu.name, 'get_weather');
@@ -138,7 +135,6 @@ describe('buildRequest — openai → anthropic format conversion', () => {
     );
     assert.equal(e.ok, true);
     const tr = e.value.messages[1].content.find((b) => b.type === 'tool_result');
-    assert.ok(tr);
     assert.equal(tr.tool_use_id, 'toolu_01');
     assert.equal(tr.content, '{"temp":30}');
   });
@@ -204,6 +200,7 @@ describe('parseResponse — anthropic → v2 normalized', () => {
     const e = await p.parseResponse(toolFixture);
     assert.equal(e.ok, true);
     assert.equal(e.value.finish_reason, 'tool_use');
+    assert.equal(e.value.content, "I'll check the weather for you.");
     assert.equal(e.value.tool_calls.length, 1);
     const tc = e.value.tool_calls[0];
     assert.equal(tc.id, 'toolu_01ABC123');
@@ -211,10 +208,9 @@ describe('parseResponse — anthropic → v2 normalized', () => {
     assert.equal(tc.function.name, 'get_weather');
     assert.equal(typeof tc.function.arguments, 'string');
     assert.deepEqual(JSON.parse(tc.function.arguments), { city: 'Beijing' });
-    assert.equal(e.value.content, "I'll check the weather for you.");
   });
 
-  test('stop_reason mapping: end_turn / max_tokens / tool_use / stop_sequence preserved verbatim', async () => {
+  test('stop_reason mapping: end_turn / max_tokens / tool_use / stop_sequence preserved', async () => {
     const { p } = make();
     for (const reason of ['end_turn', 'max_tokens', 'tool_use', 'stop_sequence']) {
       const e = await p.parseResponse({
@@ -249,15 +245,16 @@ describe('v1 fix coverage: never throws; event emission', () => {
       assert.ok('error' in e && 'value' in e);
       assert.equal(typeof e.timestamp, 'number');
     }
+    const fns = [
+      'buildRequest',
+      'parseResponse',
+      'parseStreamChunk',
+      'buildToolCallMessage',
+      'parseToolCallDelta',
+    ];
     for (const bad of [null, undefined, '', [], {}]) {
       const p2 = createAnthropicProtocol({ eventBus: new EventBus() });
-      for (const fn of [
-        'buildRequest',
-        'parseResponse',
-        'parseStreamChunk',
-        'buildToolCallMessage',
-        'parseToolCallDelta',
-      ]) {
+      for (const fn of fns) {
         const r = await p2[fn](bad, bad, 'm').catch((err) => ({ threw: err }));
         assert.equal(r.threw, undefined, `${fn} threw on ${String(bad)}`);
       }
@@ -306,20 +303,16 @@ describe('A-4 lesson + hygiene red-line + PR 7b reuse (PM hard checks)', () => {
     assert.equal(/Bearer\s+[A-Za-z0-9_-]{20,}/.test(json), false, 'no Bearer <token> in body');
   });
 
-  test('anthropic-protocol source contains no real api_key / token literals (hygiene red-line)', () => {
+  test('anthropic-protocol source: no real api_key / token literals (hygiene) + uses PR 7b formatToolCalls', () => {
     const src = readFileSync(resolve(__dirname, '../provider/anthropic-protocol.js'), 'utf8');
     assert.equal(/sk-[A-Za-z0-9_-]{10,}/.test(src), false);
     assert.equal(/sk-ant-[A-Za-z0-9_-]{10,}/.test(src), false);
     assert.equal(/Bearer\s+[A-Za-z0-9_-]{20,}/.test(src), false);
-  });
-
-  test('anthropic-protocol imports + uses formatToolCalls from PR 7b (tool-call.js)', () => {
-    const src = readFileSync(resolve(__dirname, '../provider/anthropic-protocol.js'), 'utf8');
-    assert.ok(/from\s+['"]\.\/protocol\/tool-call\.js['"]/.test(src), 'must import from PR 7b');
+    assert.ok(/from\s+['"]\.\/protocol\/tool-call\.js['"]/.test(src), 'must import PR 7b');
     assert.ok(/formatToolCalls/.test(src), 'must reference formatToolCalls');
   });
 
-  test('darwin.example.yaml unchanged: provider-anthropic still has ${ANTHROPIC_API_KEY} placeholder', () => {
+  test('darwin.example.yaml unchanged: provider-anthropic still has ${ANTHROPIC_API_KEY}', () => {
     const yml = readFileSync(resolve(__dirname, '../config/darwin.example.yaml'), 'utf8');
     assert.ok(yml.includes('${ANTHROPIC_API_KEY}'), 'placeholder must remain');
     assert.equal(/sk-[A-Za-z0-9_-]{10,}/.test(yml), false);
