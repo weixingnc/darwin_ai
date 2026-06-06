@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# 1. lint-staged (prettier + eslint --fix on staged files)
+npx --no-install lint-staged
+
+# 2. Size check (single-file < 1000 lines)
+node scripts/size-check.js
+
+# 3. Commit message check (handled by commit-msg hook)

@@ -1,0 +1,47 @@
+{
+  "root": true,
+  "env": {
+    "node": true,
+    "es2023": true,
+    "jest": false
+  },
+  "parserOptions": {
+    "ecmaVersion": 2023,
+    "sourceType": "module"
+  },
+  "extends": ["eslint:recommended"],
+  "rules": {
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "no-console": "off",
+    "prefer-const": "error",
+    "no-var": "error",
+    "eqeqeq": ["error", "always"],
+    "curly": ["error", "all"],
+    "max-lines-per-function": ["error", { "max": 200, "skipComments": true, "skipBlankLines": true }],
+    "max-depth": ["error", 4],
+    "max-params": ["error", 5],
+    "complexity": ["error", 15],
+    "no-magic-numbers": "off"
+  },
+  "overrides": [
+    {
+      "files": ["tests/**/*.js"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["scripts/**/*.js"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "node_modules/",
+    "coverage/",
+    "dist/",
+    "build/",
+    ".husky/_/"
+  ]
+}

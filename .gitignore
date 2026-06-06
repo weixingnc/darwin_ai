@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & secrets — NEVER COMMIT
+.env
+.env.*
+*.env
+*.local
+config.*.local
+config/*.local.yaml
+config/*.local.json
+
+# API keys / secrets patterns (defense in depth)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+.credentials/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Backups & temp
+*.bak
+*.bak.*
+*.tmp
+*.orig
+*.rej
+~*
+
+# Workspace metadata (OpenClaw / Hermes — NOT for darwin repo)
+.openclaw/
+AGENTS.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+HEARTBEAT.md
+memory/
+
+# Test artifacts
+.nyc_output/
+*.lcov
+junit.xml
+
+# Husky
+.husky/_/

@@ -1,0 +1,42 @@
+{
+  "name": "darwin",
+  "version": "0.1.0",
+  "description": "A self-evolving digital life. Skeleton-only v2 — flesh grown by Darwin itself.",
+  "main": "core/event-bus.js",
+  "scripts": {
+    "test": "node --test tests/",
+    "test:coverage": "node --test --experimental-test-coverage tests/",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "size-check": "node scripts/size-check.js",
+    "prepare": "husky install",
+    "verify": "npm run lint && npm run size-check && npm test"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "agent-os",
+    "self-evolving",
+    "digital-life",
+    "event-bus",
+    "multi-agent"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@commitlint/cli": "^18.0.0",
+    "@commitlint/config-conventional": "^18.0.0",
+    "eslint": "^8.57.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0",
+    "prettier": "^3.0.0"
+  },
+  "lint-staged": {
+    "*.{js,json,md,yaml,yml}": [
+      "prettier --write",
+      "eslint --fix"
+    ]
+  }
+}
