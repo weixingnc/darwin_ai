@@ -635,6 +635,70 @@ step 10: npm test           ← **验证 main 总测试数 = 之前 baseline + P
 
 ---
 
+### F-6: PM 操作 git 必走"操作前 4 步自查 + 操作后 3 步验证"反射
+
+**v2 启动期 PR 7/8/9 教训**（2026-06-06）：
+
+3 个重复 bug 的根因都是"PM 缺乏操作前自查反射":
+
+- PR 7: cherry-pick 拆 commit 时漏 rm 文件（F-5 教训，PM 自己又触发）
+- PR 8: PM 接管时 `git commit` 跑在了 feat/pr8-protocol-openai 分支上（**不是 main**）
+- PR 9: PM 接管时 `git commit` 跑在了 feat/pr9-openai-provider 分支上（**不是 main**，同 PR 8 模式）
+
+**v2 规则**：
+
+PM 操作 git（commit / cherry-pick / merge / reset / amend / rebase / checkout）**前**必走 4 步自查:
+
+1. `git branch --show-current` 确认当前分支（**必须 == 预期 target branch**）
+2. `git status --short` 看 working tree 状态（M/A/??/clean）
+3. `npm test 2>&1 | grep "ℹ tests"` 验证 baseline 正确
+4. 写操作清单（KEEP / DELETE / target branch / 期望 stat）
+
+PM 操作 git **后**必走 3 步验证:
+
+1. `git status --short` 核 working tree = 预期
+2. `npm test 2>&1 | grep "ℹ tests"` 核测试数 = baseline + 增量
+3. `git log --oneline -10` 核 commit chain 干净（**无 dangling**, 无 `merge(prN)` 误合并留在 chain）
+
+**PM 自查清单**（**每次 git 操作前手打, 不抄**）:
+
+```
+操作类型:     [commit / cherry-pick / merge / reset / amend / rebase / checkout]
+target branch: [main / feat/xx-xxx]
+当前分支:     $(git branch --show-current)  ← **必须 == target branch**
+working tree: $(git status --short | wc -l) 行
+baseline tests: $(npm test 2>&1 | grep "ℹ tests" | head -1)  ← 记下数字
+期望 stat:    [N files / M insertions]
+KEEP 清单:    [每行一个文件路径]
+DELETE 清单:  [每行一个文件路径]
+```
+
+**反 anti-pattern**（F-5 教训的延伸）:
+
+- ❌ 不查分支直接 commit（PR 8/9 教训：subagent 自动 checkout -b，PM 接管时分支已变）
+- ❌ 不查 working tree 直接 cherry-pick（PR 7 教训）
+- ❌ 不跑 npm test 直接 merge（F-5 教训延伸：main 历史不干净会污染）
+- ❌ 不列 KEEP/DELETE 直接 git rm（F-5 教训）
+- ❌ 操作后不 3 步验证（多次教训）
+- ❌ **commit body 不写"hook skipped"**（用 `--no-verify` 必须声明原因）
+
+**subagent prompt 必带"commit 重试上限"章节**:
+
+派活时 prompt 末尾加（**所有派活都带, 不是 PR 7 教训特例**）:
+
+```
+## commit 重试上限 (PM 接管触发条件)
+
+pre-commit hook (lint-staged + size-check + commitlint) 跑完后, 失败时:
+- 第 1 次失败: 看具体错误, 修
+- 第 2 次失败: 修
+- **第 3 次失败: 跑 `git commit --no-verify -m "..."` 跳过 hook, 在 commit body 注明 "hook skipped (3 retries): 原因"**
+- 仍败或 30 分钟 timeout = PM 接管
+- 完工必给: `git log` 输出 + `git show --stat` 输出 + `npm test` 输出 + 任何自查发现
+```
+
+---
+
 ## 监督机制
 
 - **PR review**：reviewer 看到任一反模式 → reject
@@ -646,33 +710,34 @@ step 10: npm test           ← **验证 main 总测试数 = 之前 baseline + P
 
 ## ANTI_PATTERNS 总表（速查）
 
-| 类别        | #   | 反模式                               | v1 教训位置 |
-| ----------- | --- | ------------------------------------ | ----------- |
-| A 模块拆分  | A-1 | 按行数拆模块                         | retro-03    |
-| A           | A-2 | 跨模块直接 import 业务函数           | retro-03    |
-| A           | A-3 | Provider 同一份写 2 遍               | retro-03    |
-| A           | A-4 | Config 硬读 process.env              | retro-02    |
-| A           | A-5 | HookManager 和 EventBus 共存         | retro-03    |
-| B Hygiene   | B-1 | 文档承诺 ignore ≠ 实际 ignore        | retro-02/03 |
-| B           | B-2 | 散点活不分类就接                     | retro-01    |
-| B           | B-3 | working tree 脏文件未清理            | retro-01    |
-| C 派活      | C-1 | 派活 prompt 只给目标不给验收         | retro-02    |
-| C           | C-2 | 信 subagent 自报                     | retro-02    |
-| C           | C-3 | 派活没带 backup 5 件套就改凭据       | retro-02    |
-| C           | C-4 | spawn 不带 session-key 前缀          | retro-02    |
-| D Tool Call | D-1 | tool_calls 格式错                    | retro-03    |
-| D           | D-2 | 无 MAX_TOOL_ROUNDS 限制              | retro-03    |
-| D           | D-3 | 工具执行无 try/catch                 | retro-03    |
-| E PM 节奏   | E-1 | W2 准备期当 W2 启动期                | retro-01    |
-| E           | E-2 | 周报只讲做了什么不讲没做什么         | retro-01    |
-| F v2 启动期 | F-1 | lint-staged 不分文件类型             | PR 1 修复   |
-| F           | F-2 | mini-YAML 解析不写嵌套支持           | PR 3 修复   |
-| F           | F-3 | 测试设计按理想逻辑而非实际业务       | PR 3 修复   |
-| F           | F-4 | PR 500 行约束按主观自报不算 git stat | PR 5 修复   |
-| F           | F-5 | cherry-pick 拆 commit 时漏 rm 文件   | PR 7 修复   |
+| 类别        | #   | 反模式                                  | v1 教训位置   |
+| ----------- | --- | --------------------------------------- | ------------- |
+| A 模块拆分  | A-1 | 按行数拆模块                            | retro-03      |
+| A           | A-2 | 跨模块直接 import 业务函数              | retro-03      |
+| A           | A-3 | Provider 同一份写 2 遍                  | retro-03      |
+| A           | A-4 | Config 硬读 process.env                 | retro-02      |
+| A           | A-5 | HookManager 和 EventBus 共存            | retro-03      |
+| B Hygiene   | B-1 | 文档承诺 ignore ≠ 实际 ignore           | retro-02/03   |
+| B           | B-2 | 散点活不分类就接                        | retro-01      |
+| B           | B-3 | working tree 脏文件未清理               | retro-01      |
+| C 派活      | C-1 | 派活 prompt 只给目标不给验收            | retro-02      |
+| C           | C-2 | 信 subagent 自报                        | retro-02      |
+| C           | C-3 | 派活没带 backup 5 件套就改凭据          | retro-02      |
+| C           | C-4 | spawn 不带 session-key 前缀             | retro-02      |
+| D Tool Call | D-1 | tool_calls 格式错                       | retro-03      |
+| D           | D-2 | 无 MAX_TOOL_ROUNDS 限制                 | retro-03      |
+| D           | D-3 | 工具执行无 try/catch                    | retro-03      |
+| E PM 节奏   | E-1 | W2 准备期当 W2 启动期                   | retro-01      |
+| E           | E-2 | 周报只讲做了什么不讲没做什么            | retro-01      |
+| F v2 启动期 | F-1 | lint-staged 不分文件类型                | PR 1 修复     |
+| F           | F-2 | mini-YAML 解析不写嵌套支持              | PR 3 修复     |
+| F           | F-3 | 测试设计按理想逻辑而非实际业务          | PR 3 修复     |
+| F           | F-4 | PR 500 行约束按主观自报不算 git stat    | PR 5 修复     |
+| F           | F-5 | cherry-pick 拆 commit 时漏 rm 文件      | PR 7 修复     |
+| F           | F-6 | pm 操作 git 缺"4 步自查 + 3 步验证"反射 | PR 7/8/9 修复 |
 
-**共 22 条反模式**（v1 抄 17 条 + v2 启动期新增 5 条 F-1/2/3/4/5）。
+**共 23 条反模式**（v1 抄 17 条 + v2 启动期新增 6 条 F-1/2/3/4/5/6）。
 
 ---
 
-_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训) + F-5 (PR 7 拆 commit 教训)。F-4: 500 行硬约束走 git stat，0.4% 弹性。F-5: cherry-pick 拆 commit 高危，KEEP+DELETE 双重核对。_
+_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训) + F-5 (PR 7 拆 commit 教训) + F-6 (PR 7/8/9 反复 bug 教训)。F-4: 500 行硬约束走 git stat, 0.4% 弹性。F-5: cherry-pick 拆 commit 高危, KEEP+DELETE 双重核对。F-6: pm 操作 git 必走 4 步自查 + 3 步验证, subagent prompt 必带 commit 重试上限。_
