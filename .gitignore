@@ -54,7 +54,16 @@ SOUL.md
 TOOLS.md
 USER.md
 HEARTBEAT.md
+
+# OpenClaw per-session memory files (the darwin `memory/` source tree is
+# the only `memory/` at the repo root and is restored by the negation
+# below — see PR 13a). To ignore a different `memory/`, use a deeper
+# explicit path.
 memory/
+!/memory/
+!/memory/*.js
+!/memory/*.json
+!/memory/*.md
 
 # Test artifacts
 .nyc_output/

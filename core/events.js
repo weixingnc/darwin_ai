@@ -52,6 +52,23 @@ export const EVENTS = Object.freeze({
   MEMORY_RETRIEVE: 'memory:retrieve',
   MEMORY_FORGET: 'memory:forget',
 
+  // ─── memory registry (PR 13a) ────────────────────
+  // Memory = Darwin's "永生" foundation; MemoryRegistry never throws.
+  // *_ERROR_MEMORY disambiguates the registry's get-miss from the
+  // backend-level MEMORY_GET_ERROR (used by concrete backends in PR 13b+).
+  MEMORY_REGISTER: 'memory:register',
+  MEMORY_UNREGISTER: 'memory:unregister',
+  MEMORY_REGISTER_ERROR: 'memory:register:error',
+  MEMORY_UNREGISTER_ERROR: 'memory:unregister:error',
+  MEMORY_GET_ERROR_MEMORY: 'memory:get:error:memory',
+  // Backend-level error events (reserved for PR 13b concrete backends).
+  MEMORY_GET_ERROR: 'memory:get:error',
+  MEMORY_SET_ERROR: 'memory:set:error',
+  MEMORY_DELETE_ERROR: 'memory:delete:error',
+  MEMORY_LIST_ERROR: 'memory:list:error',
+  MEMORY_QUERY_ERROR: 'memory:query:error',
+  MEMORY_CLEAR_ERROR: 'memory:clear:error',
+
   // ─── evolution: self-evolution (v3 implements) ─────
   EVOLUTION_DIAGNOSE_BEFORE: 'evolution:diagnose:before',
   EVOLUTION_DIAGNOSE_AFTER: 'evolution:diagnose:after',
