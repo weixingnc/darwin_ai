@@ -10,7 +10,19 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const MAX_LINES = 1000;
-const SCAN_DIRS = ['core', 'lifecycle', 'provider', 'tool', 'skill', 'memory', 'demo', 'scripts'];
+// PR 11a/11b 教训 (2026-06-06): plugin/ 和 tests/ 也需守 1000 行硬约束, 加进 SCAN_DIRS
+const SCAN_DIRS = [
+  'core',
+  'lifecycle',
+  'provider',
+  'plugin',
+  'tool',
+  'skill',
+  'memory',
+  'demo',
+  'scripts',
+  'tests',
+];
 const SKIP_FILES = new Set([]);
 
 function getFiles() {
