@@ -78,6 +78,20 @@ export const EVENTS = Object.freeze({
   PLUGIN_REGISTER_ERROR: 'plugin:register:error',
   PLUGIN_GET_ERROR: 'plugin:get:error',
   PLUGIN_UNREGISTER_ERROR: 'plugin:unregister:error',
+
+  // ─── plugin loader (PR 11b) ───────────────────────
+  // Per-stage success events. Loader NEVER throws — failures emit *_ERROR.
+  PLUGIN_LOAD: 'plugin:load',
+  PLUGIN_INIT: 'plugin:init',
+  PLUGIN_ENABLE: 'plugin:enable',
+  PLUGIN_DISABLE: 'plugin:disable',
+  PLUGIN_UNLOAD: 'plugin:unload',
+  // Per-stage error events (loader isolation: one bad plugin ≠ core down).
+  PLUGIN_LOAD_ERROR: 'plugin:load:error',
+  PLUGIN_INIT_ERROR: 'plugin:init:error',
+  PLUGIN_ENABLE_ERROR: 'plugin:enable:error',
+  PLUGIN_DISABLE_ERROR: 'plugin:disable:error',
+  PLUGIN_UNLOAD_ERROR: 'plugin:unload:error',
 });
 
 /** Event domain groups (for namespace-scoped subscription) */
