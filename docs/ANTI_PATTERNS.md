@@ -20,12 +20,14 @@
 ### A-1. 反模式：按行数拆模块
 
 ❌ **反例**：
+
 ```js
 // DarwinCore.js 2621 行 → 拆 a.js 800 行 + b.js 900 行 + c.js 921 行
 // 行数破了，但 3 个文件互相 import 业务函数，依赖照样乱
 ```
 
 ✅ **正确做法**：按"职责"拆
+
 ```js
 // 按职责拆 7 模块：
 // lifecycle:bootstrap / lifecycle:shutdown
@@ -40,13 +42,15 @@
 ### A-2. 反模式：跨模块直接 import 业务函数
 
 ❌ **反例**：
+
 ```js
 // SelfEvolution.js 里直接 import
 const { PluginManager } = require('./PluginManager');
-PluginManager.loadPlugin(name);  // 直接函数调用
+PluginManager.loadPlugin(name); // 直接函数调用
 ```
 
 ✅ **正确做法**：走 EventBus
+
 ```js
 // SelfEvolution.js 里
 this.eventBus.emit('plugin:load:request', { name });
@@ -63,12 +67,14 @@ eventBus.on('plugin:load:request', async ({ name }) => {
 ### A-3. 反模式：Provider 同一份写 2 遍
 
 ❌ **反例**：
+
 ```js
 // plugins/llm/providers/minimax.js  (600 行) ← 一份实现
 // llm/providers/minimax.js          (667 行) ← 同一 provider 又写一遍
 ```
 
 ✅ **正确做法**：Provider 单文件单路径
+
 ```js
 // llm/providers/minimax.js  (唯一文件)
 // plugins/llm/index.js 里 require 它一次
@@ -81,6 +87,7 @@ eventBus.on('plugin:load:request', async ({ name }) => {
 ### A-4. 反模式：Config 硬读 process.env
 
 ❌ **反例**：
+
 ```js
 // plugins/adapter-feishu/index.js L86
 const appId = process.env.FEISHU_APP_ID || '';
@@ -88,10 +95,11 @@ const appId = process.env.FEISHU_APP_ID || '';
 ```
 
 ✅ **正确做法**：ConfigResolver 唯一入口
+
 ```js
 const { ConfigResolver } = require('./core/ConfigResolver');
 const cfg = ConfigResolver.get('adapter-feishu');
-const appId = cfg.app_id;  // 含 fallback / 错误提示
+const appId = cfg.app_id; // 含 fallback / 错误提示
 ```
 
 **v1 教训**：4 个 plugin 硬读 env，env 没注入就静默失败。
@@ -101,6 +109,7 @@ const appId = cfg.app_id;  // 含 fallback / 错误提示
 ### A-5. 反模式：HookManager 和 EventBus 共存
 
 ❌ **反例**：
+
 ```js
 // core/HookManager.js 516 行 ← 老的 hook 系统
 // core/EventBus.js ← 新的事件总线
@@ -108,6 +117,7 @@ const appId = cfg.app_id;  // 含 fallback / 错误提示
 ```
 
 ✅ **正确做法**：EventBus 替代 HookManager
+
 ```js
 // v2 不再新建 HookManager，统一走 EventBus
 // HookManager 在 v2 标记 deprecated，v3 删除
@@ -122,6 +132,7 @@ const appId = cfg.app_id;  // 含 fallback / 错误提示
 ### B-1. 反模式：文档承诺 ignore ≠ 实际 ignore
 
 ❌ **反例**：
+
 ```yaml
 # docs/configuration.md 写：
 # "llm_config.yaml 不会被 git track"
@@ -130,6 +141,7 @@ const appId = cfg.app_id;  // 含 fallback / 错误提示
 ```
 
 ✅ **正确做法**：3 件套强制
+
 ```
 1. 文档承诺 ignore 的 → .gitignore 必配真规则（CI 验证）
 2. 真值 backup 路径明确（默认 ~/.darwin/.env）
@@ -143,6 +155,7 @@ const appId = cfg.app_id;  // 含 fallback / 错误提示
 ### B-2. 反模式：散点活不分类就接
 
 ❌ **反例**：
+
 ```text
 飞书 bug 紧急修（应该是 P0 真紧急）
 ↓
@@ -170,6 +183,7 @@ W-1 troubleshooting 链接（其实是 P2）
 ### B-3. 反模式：working tree 脏文件未清理
 
 ❌ **反例**：
+
 ```bash
 $ git status --short
 ?? .openclaw/
@@ -188,6 +202,7 @@ $ git status --short
 ```
 
 ✅ **正确做法**：.gitignore 完整 + workspace 元数据分离
+
 ```
 # .gitignore 必加
 .openclaw/
@@ -213,11 +228,13 @@ config.*.local
 ### C-1. 反模式：派活 prompt 只给目标不给验收
 
 ❌ **反例**：
+
 ```text
 "实现 typing reaction"  ← subagent 决策一切，刚及格
 ```
 
 ✅ **正确做法**：prompt 4 件套
+
 ```text
 ① 目标（含验收）：实现飞书 typing reaction；3 个 emoji_type 选 1；8 jest 单测 + 7 e2e assertion 全过
 ② 背景：darwin_core/plugins/adapter-feishu/index.js L86-90；用 OpenAI 协议
@@ -232,6 +249,7 @@ config.*.local
 ### C-2. 反模式：信 subagent 自报 = 通知说完成 = 默认完成
 
 ❌ **反例**：
+
 ```text
 subagent: "完成了，跑了测试，commit abc123"
 PM: 看了通知 → 标 done → 合 master
@@ -239,6 +257,7 @@ PM: 看了通知 → 标 done → 合 master
 ```
 
 ✅ **正确做法**：PM 4 步硬验
+
 ```bash
 # 1. git log 看 commit（必带 commit SHA）
 git log --oneline -3
@@ -260,6 +279,7 @@ curl -X POST /chat -d '{"message":"1+1=？","userId":"x"}'
 ### C-3. 反模式：派活没带 backup 5 件套就改凭据
 
 ❌ **反例**：
+
 ```text
 派活 prompt: "把 FEISHU_APP_ID 替换成 ${FEISHU_APP_ID} 占位符"
 subagent: 直接改了 → 整个飞书通道挂
@@ -267,6 +287,7 @@ subagent: 直接改了 → 整个飞书通道挂
 ```
 
 ✅ **正确做法**：派活 5 件套（hygiene 必带）
+
 ```
 1. 真值 backup 路径明确（默认 ~/.darwin/.env）
 2. chmod 600 ~/.darwin/.env
@@ -282,12 +303,14 @@ subagent: 直接改了 → 整个飞书通道挂
 ### C-4. 反模式：spawn 不带 session-key 前缀
 
 ❌ **反例**：
+
 ```bash
 openclaw agent --agent darwin-coder --session-key main -m "..."
 # 派活落到 main session，污染主上下文
 ```
 
 ✅ **正确做法**：spawn 必须带 session-key 前缀
+
 ```bash
 openclaw agent --agent darwin-coder --session-key agent:darwin-coder:task-xyz -m "..."
 # 派活落到子 session，main 干净
@@ -302,16 +325,18 @@ openclaw agent --agent darwin-coder --session-key agent:darwin-coder:task-xyz -m
 ### D-1. 反模式：tool_calls 格式错（每 toolCall 单独 push）
 
 ❌ **反例**：
+
 ```js
 // 旧代码：每个 toolCall 单独 push assistant 消息（错格式）
 for (const tc of toolCalls) {
-  messages.push({ role: 'assistant', tool_calls: [tc] });  // ← 错
+  messages.push({ role: 'assistant', tool_calls: [tc] }); // ← 错
   messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
 }
 // Round 2 LLM 拿不到完整上下文 → 响应被吞
 ```
 
 ✅ **正确做法**：合成 1 个 assistant + N 个 role:tool
+
 ```js
 // 新代码：1 个 assistant 消息 + N 个 role:tool 消息
 messages.push({ role: 'assistant', tool_calls: toolCalls });
@@ -327,6 +352,7 @@ for (let i = 0; i < toolCalls.length; i++) {
 ### D-2. 反模式：无 MAX_TOOL_ROUNDS 限制
 
 ❌ **反例**：
+
 ```js
 // 工具循环无上限
 while (true) {
@@ -338,6 +364,7 @@ while (true) {
 ```
 
 ✅ **正确做法**：硬上限 5 轮
+
 ```js
 const MAX_TOOL_ROUNDS = 5;
 for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -354,6 +381,7 @@ for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
 ### D-3. 反模式：工具执行无 try/catch
 
 ❌ **反例**：
+
 ```js
 // 一个工具抛错 → 整轮崩
 const result = await tool.execute(args);
@@ -361,6 +389,7 @@ messages.push({ role: 'tool', content: result });
 ```
 
 ✅ **正确做法**：try/catch + 降级
+
 ```js
 try {
   const result = await tool.execute(args);
@@ -380,6 +409,7 @@ try {
 ### E-1. 反模式：把 W2 准备期当 W2 启动期
 
 ❌ **反例**：
+
 ```text
 W2 启动日是 6/9 → "那 6/9 之前不用准备"
 实际：6/6-6/8 应该拆任务 / 排依赖 / 收边界
@@ -399,18 +429,111 @@ W2 启动日是 6/9 → "那 6/9 之前不用准备"
 ### E-2. 反模式：周报只讲做了什么不讲没做什么
 
 ❌ **反例**：
+
 ```text
 本周完成：飞书 tool call 修 6 处 / hygiene R-1 修复 / v0.23 docs 4628 行
 本周没做：W2 准备 = 0 / 3 个超限文件 = 0 进展
 ```
 
 ✅ **正确做法**：周报含"未做" + "为什么"
+
 ```text
 本周完成：飞书 tool call 修 6 处 / hygiene R-1 / v0.23 docs
 本周未做：W2 准备 0 进展
 未做原因：散点活黑洞吞噬 PM 注意力 / 没有分类法
 下周动作：6/6 拍散点活分类法 + 冻结期协议 / 6/6-6/8 集中做 W2 准备
 ```
+
+---
+
+## 类别 F：v2 启动期新教训（PR 1-3 沉淀）
+
+### F-1. 反模式：lint-staged 不分文件类型
+
+❌ **反例**：
+
+```json
+"lint-staged": {
+  "*.{js,json,md,yaml,yml}": [
+    "prettier --write",
+    "eslint --fix"
+  ]
+}
+```
+
+→ `package.json` / `package-lock.json` 不是 JS，被 eslint 扫后报 "Parsing error: Unexpected token :"。
+
+✅ **正确做法**：
+
+```json
+"lint-staged": {
+  "*.js": ["eslint --fix", "prettier --write"],
+  "*.{json,md,yaml,yml}": ["prettier --write"]
+}
+```
+
+**v2 教训**（PR 1 修复）：lint-staged 必须按文件类型分，**JSON / YAML / Markdown 永远不跑 eslint**。
+
+---
+
+### F-2. 反模式：mini-YAML 解析不写嵌套支持
+
+❌ **反例**（v2 启动期 PR 3 早期版本）：
+
+```js
+// 只支持顶层 key: value
+for (const line of content.split('\n')) {
+  const m = line.match(/^\s*([a-zA-Z_][\w-]*)\s*:\s*(.*?)\s*$/);
+  if (m) result[m[1]] = m[2]; // 嵌套配置 feishu: { app_id, app_secret } 全部 flat 成顶层
+}
+```
+
+→ provider 配置（`feishu: { app_id, app_secret }`）无法表达，**user deep overrides code** 测试失败。
+
+✅ **正确做法**（v2 PR 3 修复）：v2 启动期手写 "1 层缩进" mini-YAML parser（state machine + parentKey 跟踪）：
+
+```js
+// 支持 2 空格缩进 = 1 层嵌套（provider / adapter 配置足够）
+if (indent === 0) {
+  result[key] = value;
+  parentKey = value === '' ? key : null;
+} else if (indent === 2 && parentKey) {
+  /* push to result[parentKey][key] */
+}
+```
+
+**v2 教训**：v2 启动期不引 `yaml` 包（避免 devDep 膨胀），但**手写 parser 必须支持 1 层嵌套**——provider / adapter 配置全是嵌套的。**更深嵌套**留 PR 12 引 yaml 包。
+
+---
+
+### F-3. 反模式：测试设计按"理想逻辑"而非"实际业务"
+
+❌ **反例**（v2 PR 3 早期测试）：
+
+```js
+test('cred env overrides everything', () => {
+  const cfg = resolver.get('demo');
+  // 期望 app_id = 'from-cred'
+  // 但 yaml 字面量是 'from-user'，cred env key 是 APP_ID
+  // → key 不匹配，cred env 实际不覆盖字面量
+});
+```
+
+→ 期望"cred env 覆盖 yaml 字面量"，但 v2 设计 cred env 是 `${VAR}` 源，**不**直接覆盖字面量。测试逻辑错。
+
+✅ **正确做法**：测试按真实业务写：
+
+```js
+test('cred env fills ${VAR} placeholder', () => {
+  // yaml: 'app_id: ${APP_ID}'
+  // cred env: 'APP_ID=cred-value'
+  // 期望: app_id === 'cred-value'
+  process.env.APP_ID = 'process-value'; // 验证 cred 优先
+  // ...
+});
+```
+
+**v2 教训**：写测试前**先想清楚 v2 设计的真实语义**——cred env 是 `${VAR}` 源，**不**直接覆盖 yaml 字面量。**测试逻辑 = 设计文档**，写错 = 文档就错。
 
 ---
 
@@ -425,28 +548,31 @@ W2 启动日是 6/9 → "那 6/9 之前不用准备"
 
 ## ANTI_PATTERNS 总表（速查）
 
-| 类别 | # | 反模式 | v1 教训位置 |
-|---|---|---|---|
-| A 模块拆分 | A-1 | 按行数拆模块 | retro-03 |
-| A | A-2 | 跨模块直接 import 业务函数 | retro-03 |
-| A | A-3 | Provider 同一份写 2 遍 | retro-03 |
-| A | A-4 | Config 硬读 process.env | retro-02 |
-| A | A-5 | HookManager 和 EventBus 共存 | retro-03 |
-| B Hygiene | B-1 | 文档承诺 ignore ≠ 实际 ignore | retro-02/03 |
-| B | B-2 | 散点活不分类就接 | retro-01 |
-| B | B-3 | working tree 脏文件未清理 | retro-01 |
-| C 派活 | C-1 | 派活 prompt 只给目标不给验收 | retro-02 |
-| C | C-2 | 信 subagent 自报 | retro-02 |
-| C | C-3 | 派活没带 backup 5 件套就改凭据 | retro-02 |
-| C | C-4 | spawn 不带 session-key 前缀 | retro-02 |
-| D Tool Call | D-1 | tool_calls 格式错 | retro-03 |
-| D | D-2 | 无 MAX_TOOL_ROUNDS 限制 | retro-03 |
-| D | D-3 | 工具执行无 try/catch | retro-03 |
-| E PM 节奏 | E-1 | W2 准备期当 W2 启动期 | retro-01 |
-| E | E-2 | 周报只讲做了什么不讲没做什么 | retro-01 |
+| 类别        | #   | 反模式                         | v1 教训位置 |
+| ----------- | --- | ------------------------------ | ----------- |
+| A 模块拆分  | A-1 | 按行数拆模块                   | retro-03    |
+| A           | A-2 | 跨模块直接 import 业务函数     | retro-03    |
+| A           | A-3 | Provider 同一份写 2 遍         | retro-03    |
+| A           | A-4 | Config 硬读 process.env        | retro-02    |
+| A           | A-5 | HookManager 和 EventBus 共存   | retro-03    |
+| B Hygiene   | B-1 | 文档承诺 ignore ≠ 实际 ignore  | retro-02/03 |
+| B           | B-2 | 散点活不分类就接               | retro-01    |
+| B           | B-3 | working tree 脏文件未清理      | retro-01    |
+| C 派活      | C-1 | 派活 prompt 只给目标不给验收   | retro-02    |
+| C           | C-2 | 信 subagent 自报               | retro-02    |
+| C           | C-3 | 派活没带 backup 5 件套就改凭据 | retro-02    |
+| C           | C-4 | spawn 不带 session-key 前缀    | retro-02    |
+| D Tool Call | D-1 | tool_calls 格式错              | retro-03    |
+| D           | D-2 | 无 MAX_TOOL_ROUNDS 限制        | retro-03    |
+| D           | D-3 | 工具执行无 try/catch           | retro-03    |
+| E PM 节奏   | E-1 | W2 准备期当 W2 启动期          | retro-01    |
+| E           | E-2 | 周报只讲做了什么不讲没做什么   | retro-01    |
+| F v2 启动期 | F-1 | lint-staged 不分文件类型       | PR 1 修复   |
+| F           | F-2 | mini-YAML 解析不写嵌套支持     | PR 3 修复   |
+| F           | F-3 | 测试设计按理想逻辑而非实际业务 | PR 3 修复   |
 
-**共 17 条反模式**——v2 启动日 1:1 抄进 `darwin_v2/docs/ANTI_PATTERNS.md`。
+**共 20 条反模式**（v1 抄 17 条 + v2 启动期新增 3 条）。
 
 ---
 
-*2026-06-06，老王（Hermes）记录。v2 启动日 D-0 第一件事：把这份文档 1:1 抄进 `darwin_v2/docs/ANTI_PATTERNS.md`。*
+_2026-06-06，老王（Hermes）记录。v2 启动日 D-0 第一件事：把这份文档 1:1 抄进 `darwin_v2/docs/ANTI_PATTERNS.md`。v2 PR 1-3 启动期新增 3 条（F-1/2/3）。_
