@@ -1,0 +1,24 @@
+{
+  "id": "msg_01HXYZ_claude_tool",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-sonnet-20241022",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'll check the weather for you."
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01ABC123",
+      "name": "get_weather",
+      "input": { "city": "Beijing" }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 42,
+    "output_tokens": 24
+  }
+}
