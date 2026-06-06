@@ -1,0 +1,6 @@
+# v2 PR 13b (filesystem backend): strict line budget per spec (memory 470 / tests 250).
+# Prettier's printWidth=100 breaks long runIO(...) calls onto multiple lines, blowing
+# the per-file line caps. The 2 files below are exempt from auto-formatting; manual
+# formatting keeps them within budget. PM may revisit if budget relaxes.
+memory/filesystem-backend.js
+tests/memory-filesystem.test.js
