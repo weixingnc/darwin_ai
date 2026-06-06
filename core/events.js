@@ -79,6 +79,19 @@ export const EVENTS = Object.freeze({
   PLUGIN_GET_ERROR: 'plugin:get:error',
   PLUGIN_UNREGISTER_ERROR: 'plugin:unregister:error',
 
+  // ─── adapter registry (PR 12a) ────────────────────
+  // Adapter = Darwin's "continuous-run" carrier (feishu / slack / discord / webhook).
+  // AdapterRegistry never throws; success / error paths emit events.
+  ADAPTER_REGISTER: 'adapter:register',
+  ADAPTER_UNREGISTER: 'adapter:unregister',
+  ADAPTER_REGISTER_ERROR: 'adapter:register:error',
+  ADAPTER_GET_ERROR: 'adapter:get:error',
+  ADAPTER_UNREGISTER_ERROR: 'adapter:unregister:error',
+  // ─── adapter: feishu channel (PR 12a — events only; impl in PR 12b) ──
+  ADAPTER_FEISHU_MESSAGE_IN: 'adapter:feishu:message:in',
+  ADAPTER_FEISHU_MESSAGE_OUT: 'adapter:feishu:message:out',
+  ADAPTER_FEISHU_ERROR: 'adapter:feishu:error',
+
   // ─── plugin loader (PR 11b) ───────────────────────
   // Per-stage success events. Loader NEVER throws — failures emit *_ERROR.
   PLUGIN_LOAD: 'plugin:load',
@@ -104,4 +117,5 @@ export const EVENT_DOMAINS = Object.freeze({
   MEMORY: 'memory',
   EVOLUTION: 'evolution',
   PLUGIN: 'plugin',
+  ADAPTER: 'adapter',
 });
