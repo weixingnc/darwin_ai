@@ -199,4 +199,16 @@ describe('EventBus + EVENTS constants', () => {
       assert.ok(EVENTS[key].includes(':'), `EVENTS.${key} must use ':' separator`);
     }
   });
+
+  test('PR 16b skill loader events registerable (4 new SKILL_* events)', () => {
+    const bus = new EventBus();
+    for (const e of [
+      EVENTS.SKILL_LOAD,
+      EVENTS.SKILL_LOAD_ERROR,
+      EVENTS.SKILL_ENABLE,
+      EVENTS.SKILL_DISABLE,
+    ]) {
+      assert.doesNotThrow(() => bus.registerSchema(e));
+    }
+  });
 });

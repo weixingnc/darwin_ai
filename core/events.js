@@ -59,6 +59,15 @@ export const EVENTS = Object.freeze({
   SKILL_VALIDATE_ERROR: 'skill:validate:error',
   SKILL_ERROR: 'skill:error',
 
+  // ─── skill loader (PR 16b) ────────────────────────
+  // Per-stage success events for the 5-stage skill lifecycle
+  // (discover → load → validate → register → unload). Loader NEVER
+  // throws — failures emit SKILL_LOAD_ERROR (defensive, ANTI-PATTERNS A-5).
+  SKILL_LOAD: 'skill:load',
+  SKILL_LOAD_ERROR: 'skill:load:error',
+  SKILL_ENABLE: 'skill:enable',
+  SKILL_DISABLE: 'skill:disable',
+
   // ─── memory: memory backends ──────────────────────
   MEMORY_STORE: 'memory:store',
   MEMORY_RETRIEVE: 'memory:retrieve',
