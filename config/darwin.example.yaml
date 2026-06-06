@@ -1,0 +1,70 @@
+# Darwin v2 example config (3-layer demo)
+#
+# This file lives at: config/darwin.example.yaml (code layer, **committed to git**)
+# Darwin users copy it to: ~/.darwin/darwin.yaml (user layer, **not in git**)
+# True secrets live in:  ~/.darwin/.env (credential layer, **not in git**)
+#
+# v1 lesson (ANTI-PATTERNS A-4): adapter-feishu L86-90 hard-coded env read.
+# v2 rule: ALL config goes through ConfigResolver.get(moduleName).
+#
+# ${VAR} expansion:
+#   - read at resolve time
+#   - credential env has priority over process.env
+#   - missing var → '' (empty string) + warn, never throw
+
+# ────────────────────────────────────────────────────
+# Provider: OpenAI compatible (covers DeepSeek / Qwen / GLM / Moonshot)
+# v2 launch note: 9/10 国产 LLM 走 OpenAI 兼容协议，零改动支持
+# ────────────────────────────────────────────────────
+provider-openai:
+  base_url: ${OPENAI_BASE_URL}
+  api_key: ${OPENAI_API_KEY}
+  default_model: gpt-4o-mini
+  timeout_ms: 30000
+  capabilities:
+    - chat
+    - tool-call
+    - stream
+    - embed
+
+# ────────────────────────────────────────────────────
+# Provider: Anthropic native protocol
+# ────────────────────────────────────────────────────
+provider-anthropic:
+  base_url: https://api.anthropic.com
+  api_key: ${ANTHROPIC_API_KEY}
+  default_model: claude-sonnet-4-5
+  version: 2023-06-01
+  timeout_ms: 60000
+  capabilities:
+    - chat
+    - tool-call
+    - stream
+    - vision
+
+# ────────────────────────────────────────────────────
+# Adapter: Feishu (Darwin 自身接入飞书)
+# ────────────────────────────────────────────────────
+adapter-feishu:
+  app_id: ${FEISHU_APP_ID}
+  app_secret: ${FEISHU_APP_SECRET}
+  verification_token: ${FEISHU_VERIFICATION_TOKEN}
+  encrypt_key: ${FEISHU_ENCRYPT_KEY}
+  webhook_url: ${FEISHU_WEBHOOK_URL}
+
+# ────────────────────────────────────────────────────
+# Memory backend
+# v2 launch note: filesystem default, sqlite/vector 可选
+# ────────────────────────────────────────────────────
+memory-default:
+  backend: filesystem
+  path: ~/.darwin/memory
+
+# ────────────────────────────────────────────────────
+# Darwin runtime
+# ────────────────────────────────────────────────────
+darwin-runtime:
+  log_level: info
+  log_path: ~/.darwin/logs
+  max_tool_rounds: 5 # v1 教训 ANTI-PATTERNS D-2
+  event_bus_max_listeners: 100
