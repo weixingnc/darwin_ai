@@ -1,22 +1,20 @@
 /**
- * OpenAICompatibleProvider — concrete provider that wires the OpenAI-compatible
- * protocol layer (PR 8) into ProviderBase (PR 6) via real HTTP calls.
- *
- * v2 design (PR 9):
- *  - One provider covers 9/10 国产 LLM (DeepSeek / Qwen / GLM / Moonshot / Kimi)
- *    — A-3 lesson: don't fork code per vendor; differences live in config.
- *  - Config injected via ConfigResolver.get('provider-openai') — A-4 lesson:
- *    never read process.env directly.
- *  - chat() / listModels() are real HTTP calls. stream() / embed() are stubs
- *    that emit NOT_IMPLEMENTED entries (PR 10 lands streaming; embed is
- *    Darwin self-impl).
- *  - ProviderBase wraps every method in ErrorHandler + emits BEFORE/AFTER/
- *    ERROR events. We never re-throw to the caller.
+ * OpenAI-compatible provider — wires the OpenAI-compatible protocol layers
+ * (PR 8 non-streaming + PR 10 streaming) into ProviderBase (PR 6) via real
+ * HTTP calls. v2 design: one provider covers 9/10 国产 LLM (A-3 lesson).
+ * Config via ConfigResolver.get('provider-openai') — never process.env (A-4).
+ * chat()/listModels() wrapped by ProviderBase in ErrorHandler + BEFORE/AFTER/
+ * ERROR. stream() (PR 10) returns an async iterable of accumulated chunks
+ * and manually emits the same events (base _wrap resolves to a single entry,
+ * not a generator). embed() is a stub — Darwin self-impl.
  */
 
+import { randomUUID } from 'node:crypto';
 import { ProviderBase } from './base.js';
 import { createOpenAICompatibleProtocol } from './protocol/openai-compatible.js';
+import { OpenAICompatibleStreamProtocol } from './protocol/openai-compatible-stream.js';
 import { ConfigResolver } from '../core/config-resolver.js';
+import { EVENTS } from '../core/events.js';
 
 const NOT_IMPLEMENTED_MSG = '[openai-compatible] NOT_IMPLEMENTED';
 const CHAT_PATH = '/v1/chat/completions';
@@ -95,6 +93,8 @@ export class OpenAICompatibleProvider extends ProviderBase {
       typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0 ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
     this._protocol =
       opts.protocol || createOpenAICompatibleProtocol({ eventBus: opts.eventBus });
+    this._streamProtocol =
+      opts.streamProtocol || new OpenAICompatibleStreamProtocol({ eventBus: opts.eventBus });
   }
 
   async _doChat(messages, options = {}) {
@@ -155,9 +155,51 @@ export class OpenAICompatibleProvider extends ProviderBase {
     return ids;
   }
 
-  async _doStream(_m, _o) {
-    throw new Error(NOT_IMPLEMENTED_MSG);
+  /**
+   * Streaming entry: PR 10. Returns an async iterable of accumulated chunks.
+   * Emits PROVIDER_CALL_BEFORE synchronously, then PROVIDER_CALL_AFTER on
+   * successful drain or PROVIDER_CALL_ERROR on failure (which also yields
+   * {type:'error', error} as the first event). Manual emission is required
+   * because ProviderBase._wrap resolves to a single entry, not a generator.
+   */
+  async *stream(messages, options = {}) {
+    const opts = options || {};
+    const ctx = { provider: this.name, phase: 'stream', traceId: randomUUID() };
+    this._bus.emit(EVENTS.PROVIDER_CALL_BEFORE, ctx);
+    let chunkCount = 0;
+    try {
+      const res = await this._openStreamResponse(messages, opts);
+      for await (const ev of this._streamProtocol.parseStream(res, { timeoutMs: this._timeoutMs })) {
+        if (ev && ev.type !== 'done') { chunkCount++; }
+        yield ev;
+      }
+      this._bus.emit(EVENTS.PROVIDER_CALL_AFTER, { ...ctx, count: chunkCount });
+    } catch (err) {
+      const norm = { message: (err && err.message) || String(err), name: err && err.name, status: err && err.status };
+      this._bus.emit(EVENTS.PROVIDER_CALL_ERROR, { ...ctx, error: norm });
+      yield { type: 'error', error: norm };
+    }
   }
+
+  /** PR 10 helper: build stream request + POST + return response. Throws on HTTP error. */
+  async _openStreamResponse(messages, opts) {
+    const proto = this._streamProtocol;
+    const model = (typeof opts.model === 'string' && opts.model) || this._defaultModel;
+    const bodyEntry = await proto.buildStreamRequest(messages, opts, model);
+    if (!bodyEntry.ok) {
+      throw new Error(`[openai-compatible] buildStreamRequest failed: ${bodyEntry.error.message}`);
+    }
+    const res = await fetchWithTimeout(`${this._baseUrl}${CHAT_PATH}`, {
+      method: 'POST', headers: buildHeaders(this._apiKey), body: JSON.stringify(bodyEntry.value),
+    }, this._timeoutMs);
+    if (res.ok) { return res; }
+    let body = '';
+    try { body = await res.text(); } catch { /* noop */ }
+    const err = new Error(`[openai-compatible] stream HTTP ${res.status}: ${body || 'no body'}`);
+    err.status = res.status;
+    throw err;
+  }
+
   async _doEmbed(_t) {
     throw new Error(NOT_IMPLEMENTED_MSG);
   }

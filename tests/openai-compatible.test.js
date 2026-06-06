@@ -1,7 +1,9 @@
-/** OpenAI-compatible provider (non-streaming) tests — PR 9.
- * Wires protocol layer (PR 8) into ProviderBase (PR 6) with real fetch() calls.
- * Coverage: chat success/failure (network + 4xx/5xx), listModels, stream/embed
- * NOT_IMPLEMENTED, events (BEFORE/AFTER/ERROR), config via ConfigResolver (NOT process.env). */
+/** OpenAI-compatible provider (non-streaming + streaming) tests — PR 9 + PR 10.
+ * Wires protocol layers (PR 8 + PR 10) into ProviderBase (PR 6) via real fetch() calls.
+ * Coverage: chat success/failure (network + 4xx/5xx), listModels, stream() (async
+ * iterable in PR 10), embed NOT_IMPLEMENTED, events (BEFORE/AFTER/ERROR), config
+ * via ConfigResolver (NOT process.env). Stream-specific behavior in
+ * openai-compatible-stream.test.js. */
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -124,14 +126,13 @@ describe('OpenAICompatibleProvider — listModels()', () => {
     assert.equal(errs.length, 1);
   });
 });
-describe('OpenAICompatibleProvider — stream()/embed() NOT_IMPLEMENTED', () => {
+describe('OpenAICompatibleProvider — embed() NOT_IMPLEMENTED (stream() lands in PR 10)', () => {
   let p;
   beforeEach(() => { setup(); ({ p } = make()); });
   afterEach(teardown);
-  test('stream()', async () => {
-    const r = await p.stream([{ role: 'user', content: 'hi' }]);
-    assert.equal(r.ok, false);
-    assert.match(r.error.message, /NOT_IMPLEMENTED|not implemented/i);
+  test('stream() is now an async iterable (PR 10) — see openai-compatible-stream.test.js', () => {
+    const result = p.stream([{ role: 'user', content: 'hi' }]);
+    assert.equal(typeof result[Symbol.asyncIterator], 'function', 'stream() must return async iterable');
   });
   test('embed()', async () => {
     const r = await p.embed('hi');
