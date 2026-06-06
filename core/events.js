@@ -69,6 +69,15 @@ export const EVENTS = Object.freeze({
   // ─── plugin: plugin loader (v3 implements) ────────
   PLUGIN_LOAD_REQUEST: 'plugin:load:request',
   PLUGIN_LOAD_DONE: 'plugin:load:done',
+
+  // ─── plugin registry (PR 11a) ─────────────────────
+  // Lifecycle events emitted by PluginRegistry on success paths.
+  PLUGIN_REGISTER: 'plugin:register',
+  PLUGIN_UNREGISTER: 'plugin:unregister',
+  // Error events emitted on defensive error paths (registry never throws).
+  PLUGIN_REGISTER_ERROR: 'plugin:register:error',
+  PLUGIN_GET_ERROR: 'plugin:get:error',
+  PLUGIN_UNREGISTER_ERROR: 'plugin:unregister:error',
 });
 
 /** Event domain groups (for namespace-scoped subscription) */
