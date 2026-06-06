@@ -699,6 +699,22 @@ pre-commit hook (lint-staged + size-check + commitlint) 跑完后, 失败时:
 
 ---
 
+### Meta-rule (F-6 自身的硬关闭条件, 适用 F-N 一切规则)
+
+**写完 F-N 当下 PM 必跑一次 F-N 自查作为"硬关闭条件", 不跑 = F-N 视作没写, 必须重写。**
+
+**为什么**: 2026-06-06 写完 F-6 "pm 操作 git 必走 4 步自查" 当刻, PM commit F-6 时仍忘查分支 (自己违反 F-6), 立刻 reset 修。
+
+**关键认知**: 写规则 ≠ 强制执行; **执行 = 写完当刻跑一次**。
+
+**配套强制机制** (F-6 反脆弱):
+
+- skill 强制 load (`darwin-pr-dispatch` 头部必 load, 含 F-1~6 摘要)
+- pre-commit hook 检查: `docs/ANTI_PATTERNS.md` 改动时, 必查当前分支是不是 main (或独立 docs/ 分支)
+- 每次 commit message 必带"自查 4 项" check (`git branch --show-current` / `git status` / `npm test` / 期望 stat)
+
+---
+
 ## 监督机制
 
 - **PR review**：reviewer 看到任一反模式 → reject
