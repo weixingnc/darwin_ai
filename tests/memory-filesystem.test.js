@@ -3,9 +3,8 @@
  * Covers: IMemory contract; init via ConfigResolver (A-4: no process.env);
  * recursive mkdir; get/set/delete/list/query/clear round-trip; TTL expiry;
  * absent-key silent path; destroy cleanup; error isolation (IO throws →
- * emit *_ERROR, NEVER throw); hygiene; multi-tenant registry coexistence.
- * Async: PR 13b's filesystem backend uses fs/promises throughout, so
- * get/set/delete/list/query/clear all return Promises. Tests use await.
+ * emit *_ERROR, NEVER throw — spy assert); hygiene; multi-tenant registry
+ * coexistence. Async: filesystem backend uses fs/promises throughout.
  */
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +36,7 @@ function makeCfg(opts = {}) {
   const path = opts.path || join(dir, 'mem');
   writeFileSync(
     join(dir, 'code', 'memory-default.yaml'),
-    ['backend: filesystem', `path: ${path}`, ''].join('\n'),
+    `backend: filesystem\npath: ${path}\n`,
   );
   const cfg = new ConfigResolver({
     codePath: join(dir, 'code'),
@@ -56,7 +55,7 @@ async function boot() {
 }
 
 describe('FilesystemBackend — IMemory contract', () => {
-  test('name=filesystem, version=1.0.0, capabilities include persist/ttl/list/query/delete', () => {
+  test('name/version/capabilities match PR 13b spec', () => {
     const m = FilesystemBackend();
     assert.equal(m.name, 'filesystem');
     assert.equal(m.version, '1.0.0');
@@ -64,7 +63,7 @@ describe('FilesystemBackend — IMemory contract', () => {
       assert.ok(m.capabilities.includes(cap), `missing capability: ${cap}`);
     }
   });
-  test('exposes init/destroy/get/set/delete/list/query/clear as functions', () => {
+  test('exposes all IMemory methods as functions', () => {
     for (const k of ['init', 'destroy', 'get', 'set', 'delete', 'list', 'query', 'clear']) {
       assert.equal(typeof FilesystemBackend()[k], 'function', `missing fn: ${k}`);
     }
@@ -89,7 +88,7 @@ describe('FilesystemBackend — init (A-4: ConfigResolver, not process.env)', ()
     assert.equal(m._resolvedConfig.backend, 'filesystem');
     assert.equal(typeof m._path, 'string');
   });
-  test('init does not mutate process.env for memory path', async () => {
+  test('init does not mutate process.env (A-4 hygiene)', async () => {
     const before = process.env.DARWIN_MEMORY_PATH;
     const { cfg } = makeCfg();
     await FilesystemBackend().init({ eventBus: new EventBus(), config: cfg, container: null });
@@ -99,32 +98,26 @@ describe('FilesystemBackend — init (A-4: ConfigResolver, not process.env)', ()
     const src = readFileSync(resolve(__dirname, '../memory/filesystem-backend.js'), 'utf8');
     assert.equal(/\/home\/[a-z_]+\//.test(src), false, 'contains /home/<user>/ literal');
     assert.equal(/\/Users\/[a-z_]+\//.test(src), false, 'contains /Users/<user>/ literal');
-    assert.equal(
-      /\.darwin\/memory/.test(src),
-      false,
-      'contains hard-coded ~/.darwin/memory literal',
-    );
+    assert.equal(/\.darwin\/memory/.test(src), false, 'contains ~/.darwin/memory literal');
   });
   test('init creates the path directory recursively', async () => {
     const { cfg, path } = makeCfg();
     await FilesystemBackend().init({ eventBus: new EventBus(), config: cfg, container: null });
-    assert.equal(existsSync(path), true, `expected ${path} to exist after init`);
+    assert.equal(existsSync(path), true);
     assert.deepEqual(readdirSync(path), []);
   });
-});
-
-describe('FilesystemBackend — init failure paths', () => {
   test('unwritable path → emit MEMORY_GET_ERROR_MEMORY, NEVER throws', async () => {
     const bus = new EventBus();
-    // Build a "file" that will block mkdir from creating a child dir under it.
+    // A regular file blocks mkdir from creating a child dir under it.
     const blocker = join(tmpdir(), `darwin-mem-block-${Date.now()}-${Math.random()}`);
     writeFileSync(blocker, 'x');
     const blockedPath = join(blocker, 'subdir-cannot-exist');
     const fakeConfig = { get: () => ({ backend: 'filesystem', path: blockedPath }) };
     const got = [];
     bus.on(EVENTS.MEMORY_GET_ERROR_MEMORY, (p) => got.push(p));
-    const m = FilesystemBackend();
-    await assert.doesNotReject(m.init({ eventBus: bus, config: fakeConfig, container: null }));
+    await assert.doesNotReject(
+      FilesystemBackend().init({ eventBus: bus, config: fakeConfig, container: null }),
+    );
     assert.ok(got.length >= 1, 'expected MEMORY_GET_ERROR_MEMORY on unwritable path');
     rmSync(blocker, { force: true });
   });
@@ -140,16 +133,13 @@ describe('FilesystemBackend — get/set round-trip', () => {
     assert.deepEqual(await m.get('foo'), { hello: 'world' });
   });
   test('get on missing key returns null (NEVER throws)', async () => {
-    let result;
-    await assert.doesNotReject(async () => {
-      result = await m.get('nope');
-    });
+    const result = await m.get('nope');
     assert.equal(result, null);
   });
   test('set without TTL writes meta.expiresAt = null', async () => {
     await m.set('a', 1);
     const meta = m._meta.get('a');
-    assert.ok(meta, 'meta entry should exist for "a"');
+    assert.ok(meta);
     assert.equal(meta.expiresAt, null);
   });
   test('set with TTL writes meta.expiresAt = createdAt + ttl', async () => {
@@ -162,18 +152,14 @@ describe('FilesystemBackend — get/set round-trip', () => {
 });
 
 describe('FilesystemBackend — TTL expiry', () => {
-  test('set with ttl=100ms, sleep 200ms → get returns null + file unlinked', async () => {
+  test('ttl=100ms, sleep 200ms → get returns null + file unlinked', async () => {
     const { cfg, path } = makeCfg();
     const m = FilesystemBackend();
     await m.init({ eventBus: new EventBus(), config: cfg, container: null });
     await m.set('ephemeral', 'gone-soon', 100);
     assert.equal(await m.get('ephemeral'), 'gone-soon');
-    // Real sleep so the timestamp crosses the expiry boundary.
     await new Promise((r) => setTimeout(r, 200));
-    let result;
-    await assert.doesNotReject(async () => {
-      result = await m.get('ephemeral');
-    });
+    const result = await m.get('ephemeral');
     assert.equal(result, null);
     assert.throws(() => readFileSync(join(path, 'ephemeral.json')));
   });
@@ -186,16 +172,11 @@ describe('FilesystemBackend — delete', () => {
   });
   test('delete existing key removes it', async () => {
     await m.set('a', 1);
-    const r = await m.delete('a');
-    assert.equal(r?.ok !== false, true);
+    await m.delete('a');
     assert.equal(await m.get('a'), null);
   });
   test('delete missing key is silent (NEVER throws)', async () => {
-    let result;
-    await assert.doesNotReject(async () => {
-      result = await m.delete('ghost');
-    });
-    assert.equal(result?.ok !== false, true);
+    await m.delete('ghost');
   });
 });
 
@@ -224,7 +205,7 @@ describe('FilesystemBackend — list + query', () => {
   });
 });
 
-describe('FilesystemBackend — clear', () => {
+describe('FilesystemBackend — clear + destroy', () => {
   test('clear() removes all keys and recreates the path', async () => {
     const { cfg, path } = makeCfg();
     const m = FilesystemBackend();
@@ -232,30 +213,114 @@ describe('FilesystemBackend — clear', () => {
     await m.set('a', 1);
     await m.set('b', 2);
     assert.deepEqual(await m.list(), ['a', 'b']);
-    const r = await m.clear();
-    assert.equal(r?.ok !== false, true);
+    await m.clear();
     assert.deepEqual(await m.list(), []);
     assert.equal(existsSync(path), true);
   });
-});
-
-describe('FilesystemBackend — destroy', () => {
-  test('destroy() clears the in-memory map (does not touch disk)', async () => {
+  test('destroy() clears the in-memory map (disk authoritative)', async () => {
     const { cfg } = makeCfg();
     const m = FilesystemBackend();
     await m.init({ eventBus: new EventBus(), config: cfg, container: null });
     await m.set('keep-me', 'persisted');
     m.destroy();
     assert.equal(m._meta.size, 0);
-    // Re-init should still see the on-disk value.
+    // Re-init reads the on-disk value back.
     const m2 = FilesystemBackend();
     await m2.init({ eventBus: new EventBus(), config: cfg, container: null });
     assert.equal(await m2.get('keep-me'), 'persisted');
   });
 });
 
-describe('FilesystemBackend — error isolation + multi-tenant', () => {
-  test('FilesystemBackend is multi-tenant with sqlite + vector in MemoryRegistry', () => {
+describe('FilesystemBackend — error isolation (spy assert)', () => {
+  /** Inject a synthetic IO error into the file-path layer (get/set/delete). */
+  function fileBroken(bus) {
+    const m = FilesystemBackend();
+    m._bus = bus;
+    m._path = '/tmp/darwin-mem-broken';
+    m._filePath = () => {
+      throw new Error('synthetic IO failure');
+    };
+    return m;
+  }
+  /** Point _path at a regular file so readdir throws ENOTDIR (list/query). */
+  function dirBroken(bus) {
+    const tmp = join(tmpdir(), `darwin-mem-notdir-${Date.now()}-${Math.random()}`);
+    writeFileSync(tmp, 'x');
+    const m = FilesystemBackend();
+    m._bus = bus;
+    m._path = tmp;
+    return { m, cleanup: () => rmSync(tmp, { force: true }) };
+  }
+  /** Make _path unusable for rm/mkdir (clear). */
+  function clearBroken(bus) {
+    const m = FilesystemBackend();
+    m._bus = bus;
+    // Non-string path → rm() rejects with ERR_INVALID_ARG_VALUE.
+    m._path = 12345;
+    return m;
+  }
+
+  test('get() IO throw → emit MEMORY_GET_ERROR + return null', async () => {
+    const bus = new EventBus();
+    const got = [];
+    bus.on(EVENTS.MEMORY_GET_ERROR, (p) => got.push(p));
+    const m = fileBroken(bus);
+    const result = await m.get('k');
+    assert.equal(result, null);
+    assert.equal(got.length, 1);
+    assert.match(got[0].message, /synthetic IO failure/);
+  });
+  test('set() IO throw → emit MEMORY_SET_ERROR + ok:false', async () => {
+    const bus = new EventBus();
+    const got = [];
+    bus.on(EVENTS.MEMORY_SET_ERROR, (p) => got.push(p));
+    const m = fileBroken(bus);
+    const r = await m.set('k', 'v');
+    assert.equal(r.ok, false);
+    assert.equal(got.length, 1);
+  });
+  test('delete() IO throw → emit MEMORY_DELETE_ERROR + ok:false', async () => {
+    const bus = new EventBus();
+    const got = [];
+    bus.on(EVENTS.MEMORY_DELETE_ERROR, (p) => got.push(p));
+    const m = fileBroken(bus);
+    const r = await m.delete('k');
+    assert.equal(r.ok, false);
+    assert.equal(got.length, 1);
+  });
+  test('list() IO throw → emit MEMORY_LIST_ERROR + return []', async () => {
+    const bus = new EventBus();
+    const got = [];
+    bus.on(EVENTS.MEMORY_LIST_ERROR, (p) => got.push(p));
+    const { m, cleanup } = dirBroken(bus);
+    const r = await m.list();
+    assert.deepEqual(r, []);
+    assert.ok(got.length >= 1, 'expected MEMORY_LIST_ERROR on non-dir path');
+    cleanup();
+  });
+  test('query() IO throw → emit MEMORY_QUERY_ERROR + return []', async () => {
+    const bus = new EventBus();
+    const got = [];
+    bus.on(EVENTS.MEMORY_QUERY_ERROR, (p) => got.push(p));
+    const { m, cleanup } = dirBroken(bus);
+    const r = await m.query('^a');
+    assert.deepEqual(r, []);
+    assert.ok(got.length >= 1);
+    cleanup();
+  });
+  test('clear() IO throw → emit MEMORY_CLEAR_ERROR + ok:false', async () => {
+    const bus = new EventBus();
+    const got = [];
+    bus.on(EVENTS.MEMORY_CLEAR_ERROR, (p) => got.push(p));
+    const m = clearBroken(bus);
+    const r = await m.clear();
+    assert.equal(r.ok, false);
+    assert.ok(got.length >= 1);
+  });
+});
+
+describe('FilesystemBackend — multi-tenant registry coexistence', () => {
+  test('filesystem + sqlite + vector coexist in MemoryRegistry', () => {
     const bus = new EventBus();
     const reg = new MemoryRegistry({ eventBus: bus });
     const stub = (name) => ({
@@ -280,10 +345,7 @@ describe('FilesystemBackend — error isolation + multi-tenant', () => {
   test('get() on a missing key after destroy returns null, NEVER throws', async () => {
     const m = await boot();
     m.destroy();
-    let result;
-    await assert.doesNotReject(async () => {
-      result = await m.get('whatever');
-    });
+    const result = await m.get('whatever');
     assert.equal(result, null);
   });
 });
