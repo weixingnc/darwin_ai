@@ -47,6 +47,18 @@ export const EVENTS = Object.freeze({
   SKILL_EXECUTE_BEFORE: 'skill:execute:before',
   SKILL_EXECUTE_AFTER: 'skill:execute:after',
 
+  // ─── skill registry (PR 16a) ─────────────────────
+  // Skill = Darwin's "ability" layer (chat / code / search / ...). The
+  // registry is defensive (multi-tenant, never throws); errors surface
+  // via SKILL_*_ERROR. Runtime lifecycle events arrive in PR 16b+.
+  SKILL_UNREGISTER: 'skill:unregister',
+  SKILL_REGISTER_ERROR: 'skill:register:error',
+  SKILL_GET_ERROR: 'skill:get:error',
+  SKILL_UNREGISTER_ERROR: 'skill:unregister:error',
+  SKILL_INVOKE_ERROR: 'skill:invoke:error',
+  SKILL_VALIDATE_ERROR: 'skill:validate:error',
+  SKILL_ERROR: 'skill:error',
+
   // ─── memory: memory backends ──────────────────────
   MEMORY_STORE: 'memory:store',
   MEMORY_RETRIEVE: 'memory:retrieve',
