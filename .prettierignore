@@ -4,3 +4,10 @@
 # formatting keeps them within budget. PM may revisit if budget relaxes.
 memory/filesystem-backend.js
 tests/memory-filesystem.test.js
+
+# v2 PR 15 (integration test): total budget 300 lines (F-7 + F-9 3% → 309).
+# Prettier's printWidth=100 reformats long assert/destructuring into multi-line,
+# blowing 108/100/89 → 157/176/128 (461 total). Manual formatting keeps 297 < 300.
+tests/integration/full-stack.test.js
+tests/integration/event-bus.test.js
+tests/integration/lifecycle.test.js
