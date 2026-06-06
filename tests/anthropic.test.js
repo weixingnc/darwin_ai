@@ -1,7 +1,4 @@
-/** AnthropicProvider tests — PR 14b. Wires PR 14a1/14a2 into ProviderBase.
- *  Parallel to openai-compatible.test.js (PR 9). Coverage: construction,
- *  chat (happy/error/delegate), stream (SSE/error), listModels static,
- *  ConfigResolver (A-4), hygiene. */
+/** AnthropicProvider tests — PR 14b. Wires PR 14a1/14a2 into ProviderBase. */
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';

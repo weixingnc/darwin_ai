@@ -57,35 +57,23 @@ const fail = (e, op) => {
 const doPost = (url, body, k, opts, ms) => {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
-  return fetch(url, {
-    method: 'POST',
-    headers: hdr(k, opts),
-    body: JSON.stringify(body),
-    signal: c.signal,
-  }).finally(() => clearTimeout(t));
+  return fetch(url, { method: 'POST', headers: hdr(k, opts), body: JSON.stringify(body), signal: c.signal }).finally(() => clearTimeout(t));
 };
+const normErr = (e) => ({ message: (e && e.message) || String(e), name: e && e.name, status: e && e.status });
 
 export class AnthropicProvider extends ProviderBase {
   constructor(opts = {}) {
     if (!opts || !opts.eventBus) {
       throw new TypeError('[anthropic] constructor: opts.eventBus is required');
     }
-    super({
-      name: 'anthropic',
-      capabilities: ['chat', 'stream', 'tool-call', 'listModels'],
-      eventBus: opts.eventBus,
-    });
+    super({ name: 'anthropic', capabilities: ['chat', 'stream', 'tool-call', 'listModels'], eventBus: opts.eventBus });
     this.version = VERSION;
     this._baseUrl = strip(opts.baseUrl);
     this._apiKey = opts.apiKey || '';
     this._defaultModel = opts.defaultModel || '';
-    this._timeoutMs =
-      typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0
-        ? opts.timeoutMs
-        : DEFAULT_TIMEOUT_MS;
+    this._timeoutMs = typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0 ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
     this._protocol = opts.protocol || createAnthropicProtocol({ eventBus: opts.eventBus });
-    this._streamProtocol =
-      opts.streamProtocol || createAnthropicProtocolStream({ eventBus: opts.eventBus });
+    this._streamProtocol = opts.streamProtocol || createAnthropicProtocolStream({ eventBus: opts.eventBus });
   }
 
   /** Per-spec init entry: wires eventBus + config without touching the registry. */
@@ -123,12 +111,7 @@ export class AnthropicProvider extends ProviderBase {
     if (!parsed.ok) {
       fail(parsed.error, 'parseResponse');
     }
-    return {
-      content: parsed.value.content,
-      toolCalls: parsed.value.tool_calls,
-      usage: parsed.value.usage,
-      raw,
-    };
+    return { content: parsed.value.content, toolCalls: parsed.value.tool_calls, usage: parsed.value.usage, raw };
   }
 
   /** A-3: delegates to chat() — provider does NOT re-implement wire format. */
@@ -145,9 +128,8 @@ export class AnthropicProvider extends ProviderBase {
     let n = 0;
     try {
       const res = await this._openStreamResponse(messages, opts);
-      for await (const ev of this._streamProtocol.parseStream(res, {
-        timeoutMs: this._timeoutMs,
-      })) {
+      const streamOpts = { timeoutMs: this._timeoutMs };
+      for await (const ev of this._streamProtocol.parseStream(res, streamOpts)) {
         if (ev && ev.type !== 'done' && ev.type !== 'error') {
           n++;
         }
@@ -155,13 +137,9 @@ export class AnthropicProvider extends ProviderBase {
       }
       this._bus.emit(EVENTS.PROVIDER_CALL_AFTER, { ...ctx, count: n });
     } catch (err) {
-      const norm = {
-        message: (err && err.message) || String(err),
-        name: err && err.name,
-        status: err && err.status,
-      };
-      this._bus.emit(EVENTS.PROVIDER_CALL_ERROR, { ...ctx, error: norm });
-      yield { type: 'error', error: norm };
+      const e = normErr(err);
+      this._bus.emit(EVENTS.PROVIDER_CALL_ERROR, { ...ctx, error: e });
+      yield { type: 'error', error: e };
     }
   }
 
@@ -172,13 +150,7 @@ export class AnthropicProvider extends ProviderBase {
     if (!be.ok) {
       throw new Error(`buildStreamRequest failed: ${be.error.message}`);
     }
-    const res = await doPost(
-      `${this._baseUrl}${CHAT_PATH}`,
-      be.value,
-      this._apiKey,
-      opts,
-      this._timeoutMs,
-    );
+    const res = await doPost(`${this._baseUrl}${CHAT_PATH}`, be.value, this._apiKey, opts, this._timeoutMs);
     if (res.ok) {
       return res;
     }
