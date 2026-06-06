@@ -5,13 +5,19 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
 
 test('node test runner works', () => {
   assert.equal(1 + 1, 2);
 });
 
-test('package metadata present', async () => {
-  const pkg = await import('../package.json', { with: { type: 'json' } });
-  assert.equal(pkg.default.name, 'darwin');
-  assert.equal(pkg.default.version, '0.1.0');
+test('package metadata present', () => {
+  assert.equal(pkg.name, 'darwin');
+  assert.equal(pkg.version, '0.1.0');
+  assert.equal(pkg.type, 'module');
 });

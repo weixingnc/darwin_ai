@@ -20,7 +20,9 @@ function getFiles() {
       .split('\n')
       .filter((f) => f && SCAN_DIRS.some((d) => f.startsWith(d + '/')) && f.endsWith('.js'));
 
-    if (staged.length > 0) return staged;
+    if (staged.length > 0) {
+      return staged;
+    }
 
     // 2. All tracked source files (in CI / local)
     const tracked = execSync('git ls-files', { encoding: 'utf8' })
@@ -46,11 +48,15 @@ const files = getFiles();
 let violations = 0;
 
 for (const f of files) {
-  if (SKIP_FILES.has(f)) continue;
+  if (SKIP_FILES.has(f)) {
+    continue;
+  }
   const lines = countLines(f);
   const marker = lines > MAX_LINES ? '✗' : '✓';
   console.log(`${marker} ${f}: ${lines} lines`);
-  if (lines > MAX_LINES) violations++;
+  if (lines > MAX_LINES) {
+    violations++;
+  }
 }
 
 if (violations > 0) {
