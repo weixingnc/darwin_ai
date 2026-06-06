@@ -629,6 +629,66 @@ PR 范围按"块类型"分档弹性（**F-4 500 一刀切升级为 F-7 分档**�
 
 ---
 
+### F-8: PM 接管后信 subagent 报告未 `git log --all` 验证 (PR 12b/13b 教训)
+
+**v2 启动期 PR 12b/13b 教训**（2026-06-06）：
+
+- F-6 SOP 拍板: subagent 跑超 25 分钟未 commit = PM 接管候选
+- PR 12b: subagent 24 分钟卡 commit, 报告"commit SHA `548bab5` 已落", PM 接管 `git commit --no-verify` 生成新 SHA `b6c814f` (跟 subagent 报告 SHA 不同)
+- PR 13b: subagent 24 分钟卡 commit, 报告"commit SHA `548bab5` 已落", PM 接管后 `git log --all` 找不到任何新 commit (subagent 实际**没**真 commit, 报告假 SHA)
+- **PM 真坑**: PR 13b 接管 commit 完成后, `git checkout main && git merge --no-ff feat/pr13b-memory-filesystem` 报"已经是最新的" — **实际 main 没合并**, 是 git 误报
+- **PM 又一坑**: 后续某次 `git reset HEAD~1` 把接管 commit 删了, main 退回 PR 13a, 实际 D-2 没完工
+- **PM 三坑**: 收尾汇报时 `git log -13` 没看到 PR 13b, 才发现在 main 之外
+- **PM 真修复**: `git reset --hard b6c814f` 恢复 main 到 PR 13b, 验证 291/291
+
+**v2 规则**（**PM 接管 SOP 升级为 F-8**）：
+
+PM 接管后必走 5 步, **不信 subagent 报告的 commit SHA**:
+
+```bash
+# 接管 5 步 (F-6 3 步 + F-8 2 步新增)
+1. eslint check + eslint --fix (跟 lint-staged 同步)
+2. npm test (跟 CI 同步)
+3. commit (--no-verify, body 注明 "hook skipped (3 retries): <原因>")
+4. **git log --all --oneline | grep <新 commit SHA>**  ← F-8 新增, 验证 SHA 真实存在
+5. **git merge --ff-only <branch> OR git reset --hard <SHA>**  ← F-8 新增, fast-forward 而非误用 --no-ff
+6. **git log main --oneline -3**  ← F-8 新增, 验证 main 真的含新 commit
+7. npm test + npm run lint + npm run size-check (main 验证)
+```
+
+**PM 接管后必查 (F-8 自查清单)**：
+
+```bash
+□ git log --all | grep <接管 commit SHA>  # SHA 真实存在
+□ git status --short  # 工作树 clean (无 untracked)
+□ git branch -a  # 悬空 branch 列出 + 计划清理
+□ git reflog | head -10  # 看到 reset / cherry-pick 痕迹
+□ 接管 commit 是 main 的 fast-forward 目标 (git merge-base --is-ancestor)
+```
+
+**反 anti-pattern**（F-6 教训的延伸）:
+
+- ❌ **信 subagent 报告的 commit SHA** (PR 12b/13b 都遇到, subagent 报告假 SHA)
+- ❌ `git merge --no-ff` 后**不** `git log main` 验证 main 真的含新 commit (PR 13b 误报"已经是最新的")
+- ❌ 接管后**不**清理悬空 branch (feat/pr13b 留到收尾才发现)
+- ❌ `git reset HEAD~1` 高危手工操作**不**写 F-8 自查清单
+- ❌ 收尾汇报 `git log` 不带 `--all`, 只看 main (漏掉悬空 / 已 reset 的 commit)
+- ✅ `git reset --hard <commit>` 替代 `git merge --no-ff` 接管 fast-forward
+- ✅ `git log --all --oneline | head -20` 收尾必看, 不只 `git log main`
+
+**subagent prompt 必带"接管信号"章节**:
+
+派活时 prompt "③ 严格禁止" 末尾加:
+
+```
+**PM 接管信号** (F-6 SOP 25 分钟 + F-8 验证):
+- subagent 跑超 25 分钟 + 工作树有 untracked + 仍未 commit = 接管
+- PM 接管后必走 5 步 (F-6 3 步 + F-8 git log --all 验证 + git reset --hard fast-forward)
+- subagent 报告 commit SHA **不可信**, 必须 git log --all 验证
+```
+
+---
+
 ## 监督机制
 
 ### F-5: cherry-pick 拆 commit 时漏 rm 文件 → main 状态污染
@@ -786,35 +846,36 @@ pre-commit hook (lint-staged + size-check + commitlint) 跑完后, 失败时:
 
 ## ANTI_PATTERNS 总表（速查）
 
-| 类别        | #   | 反模式                                  | v1 教训位置   |
-| ----------- | --- | --------------------------------------- | ------------- |
-| A 模块拆分  | A-1 | 按行数拆模块                            | retro-03      |
-| A           | A-2 | 跨模块直接 import 业务函数              | retro-03      |
-| A           | A-3 | Provider 同一份写 2 遍                  | retro-03      |
-| A           | A-4 | Config 硬读 process.env                 | retro-02      |
-| A           | A-5 | HookManager 和 EventBus 共存            | retro-03      |
-| B Hygiene   | B-1 | 文档承诺 ignore ≠ 实际 ignore           | retro-02/03   |
-| B           | B-2 | 散点活不分类就接                        | retro-01      |
-| B           | B-3 | working tree 脏文件未清理               | retro-01      |
-| C 派活      | C-1 | 派活 prompt 只给目标不给验收            | retro-02      |
-| C           | C-2 | 信 subagent 自报                        | retro-02      |
-| C           | C-3 | 派活没带 backup 5 件套就改凭据          | retro-02      |
-| C           | C-4 | spawn 不带 session-key 前缀             | retro-02      |
-| D Tool Call | D-1 | tool_calls 格式错                       | retro-03      |
-| D           | D-2 | 无 MAX_TOOL_ROUNDS 限制                 | retro-03      |
-| D           | D-3 | 工具执行无 try/catch                    | retro-03      |
-| E PM 节奏   | E-1 | W2 准备期当 W2 启动期                   | retro-01      |
-| E           | E-2 | 周报只讲做了什么不讲没做什么            | retro-01      |
-| F v2 启动期 | F-1 | lint-staged 不分文件类型                | PR 1 修复     |
-| F           | F-2 | mini-YAML 解析不写嵌套支持              | PR 3 修复     |
-| F           | F-3 | 测试设计按理想逻辑而非实际业务          | PR 3 修复     |
-| F           | F-4 | PR 500 行约束按主观自报不算 git stat    | PR 5 修复     |
-| F           | F-5 | cherry-pick 拆 commit 时漏 rm 文件      | PR 7 修复     |
-| F           | F-6 | pm 操作 git 缺"4 步自查 + 3 步验证"反射 | PR 7/8/9 修复 |
-| F           | F-7 | pr 500 行硬约束按"块类型"分档弹性       | PR 12b 修复   |
+| 类别        | #   | 反模式                                           | v1 教训位置     |
+| ----------- | --- | ------------------------------------------------ | --------------- |
+| A 模块拆分  | A-1 | 按行数拆模块                                     | retro-03        |
+| A           | A-2 | 跨模块直接 import 业务函数                       | retro-03        |
+| A           | A-3 | Provider 同一份写 2 遍                           | retro-03        |
+| A           | A-4 | Config 硬读 process.env                          | retro-02        |
+| A           | A-5 | HookManager 和 EventBus 共存                     | retro-03        |
+| B Hygiene   | B-1 | 文档承诺 ignore ≠ 实际 ignore                    | retro-02/03     |
+| B           | B-2 | 散点活不分类就接                                 | retro-01        |
+| B           | B-3 | working tree 脏文件未清理                        | retro-01        |
+| C 派活      | C-1 | 派活 prompt 只给目标不给验收                     | retro-02        |
+| C           | C-2 | 信 subagent 自报                                 | retro-02        |
+| C           | C-3 | 派活没带 backup 5 件套就改凭据                   | retro-02        |
+| C           | C-4 | spawn 不带 session-key 前缀                      | retro-02        |
+| D Tool Call | D-1 | tool_calls 格式错                                | retro-03        |
+| D           | D-2 | 无 MAX_TOOL_ROUNDS 限制                          | retro-03        |
+| D           | D-3 | 工具执行无 try/catch                             | retro-03        |
+| E PM 节奏   | E-1 | W2 准备期当 W2 启动期                            | retro-01        |
+| E           | E-2 | 周报只讲做了什么不讲没做什么                     | retro-01        |
+| F v2 启动期 | F-1 | lint-staged 不分文件类型                         | PR 1 修复       |
+| F           | F-2 | mini-YAML 解析不写嵌套支持                       | PR 3 修复       |
+| F           | F-3 | 测试设计按理想逻辑而非实际业务                   | PR 3 修复       |
+| F           | F-4 | PR 500 行约束按主观自报不算 git stat             | PR 5 修复       |
+| F           | F-5 | cherry-pick 拆 commit 时漏 rm 文件               | PR 7 修复       |
+| F           | F-6 | pm 操作 git 缺"4 步自查 + 3 步验证"反射          | PR 7/8/9 修复   |
+| F           | F-7 | pr 500 行硬约束按"块类型"分档弹性                | PR 12b 修复     |
+| F           | F-8 | pm 接管后信 subagent 报告未 `git log --all` 验证 | PR 12b/13b 修复 |
 
-**共 24 条反模式**（v1 抄 17 条 + v2 启动期新增 7 条 F-1/2/3/4/5/6/7）。
+**共 25 条反模式**（v1 抄 17 条 + v2 启动期新增 8 条 F-1/2/3/4/5/6/7/8）。
 
 ---
 
-_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训) + F-5 (PR 7 拆 commit 教训) + F-6 (PR 7/8/9 反复 bug 教训) + F-7 (PR 12b 27% 超界教训)。F-4: 500 行硬约束走 git stat, 0.4% 弹性。F-5: cherry-pick 拆 commit 高危, KEEP+DELETE 双重核对。F-6: pm 操作 git 必走 4 步自查 + 3 步验证, subagent prompt 必带 commit 重试上限。F-7: pr 500 行约束按"块类型"分档 (protocol/adapter 700, 其他 510, integration 300), 替代 F-4 一刀切。_
+_2026-06-06，老王（Hermes）记录。v2 启动日 D-0：F-1/2/3 抄 + F-4 (PR 5 教训) + F-5 (PR 7 拆 commit 教训) + F-6 (PR 7/8/9 反复 bug 教训) + F-7 (PR 12b 27% 超界教训) + F-8 (PR 12b/13b 接管时信 subagent 报告未 git log --all 验证教训)。F-4: 500 行硬约束走 git stat, 0.4% 弹性。F-5: cherry-pick 拆 commit 高危, KEEP+DELETE 双重核对。F-6: pm 操作 git 必走 4 步自查 + 3 步验证, subagent prompt 必带 commit 重试上限。F-7: pr 500 行约束按"块类型"分档 (protocol/adapter 700, 其他 510, integration 300), 替代 F-4 一刀切。F-8: pm 接管后必须 `git log --all` 验证 commit SHA 真实存在, 不信 subagent 报告。_
