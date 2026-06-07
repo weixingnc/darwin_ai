@@ -80,7 +80,10 @@ describe('darwin CLI (PR 19b)', () => {
   });
 
   test('darwin repl (no provider configured) exits 2 with the no-provider hint', () => {
-    const r = run(['repl']);
+    // Hermetic: use a clean HOME so no user config exists
+    const r = run(['repl'], {
+      env: { ...process.env, HOME: '/tmp/darwin-test-empty-no-such-dir' },
+    });
     assert.equal(r.status, 2, `expected exit 2, got ${r.status}. stderr: ${r.stderr}`);
     assert.ok(
       r.stdout.includes('No provider configured') || r.stderr.includes('No provider configured'),

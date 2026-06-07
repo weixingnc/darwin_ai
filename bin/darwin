@@ -41,12 +41,22 @@ Supported modules: provider-anthropic, provider-openai
 `;
 
 async function main() {
-  if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
+  // argv: [node, bin/darwin, ...args]
+  // For sub-command pattern (config add, plugin add, memory show, etc):
+  //   args[0] = cmd, args[1] = sub, args[2..] = rest
+  // For free-form pattern (chat, repl): args[0] = cmd, args[1..] = freeText
+  const argv = process.argv.slice(2);
+  const cmd = argv[0];
+  const sub = argv[1];
+  const rest = argv.slice(2);
+
+  if (cmd === 'help' || cmd === '--help' || cmd === '-h' || cmd === undefined) {
     console.log(HELP);
     return;
   }
   if (cmd === 'chat') {
-    await chat(rest.join(' ').trim());
+    // Free-form: capture everything from index 1 onwards
+    await chat(argv.slice(1).join(' ').trim());
     return;
   }
   if (cmd === 'repl') {
