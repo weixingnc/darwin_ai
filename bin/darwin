@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+/**
+ * Darwin v2 CLI — D-5 用户面入口 (PR 19a).
+ *
+ * MVP: chat (单次) + config (add/show) + help.
+ * PR 19b 会加: repl + plugin + memory sub-commands.
+ *
+ * Usage:
+ *   darwin chat "..."              single-shot chat
+ *   darwin config add <module>     interactive config (provider-anthropic | provider-openai)
+ *   darwin config show             list configs (redacted)
+ *   darwin help                    this help
+ *
+ * v2 design: 0 真凭据. config 走 ${VAR} 占位符, key 走 ~/.darwin/.env.
+ */
+
+import { chat } from './lib/chat.js';
+import { configAdd, configShow } from './lib/config.js';
+
+const [, , cmd, sub, ...rest] = process.argv;
+
+const HELP = `Darwin v2 — digital life CLI
+
+Usage:
+  darwin chat "..."              single-shot chat (uses first configured provider)
+  darwin config add <module>     interactive config add
+  darwin config show             list configs (secrets redacted)
+  darwin help                    this help
+
+Supported modules: provider-anthropic, provider-openai
+`;
+
+async function main() {
+  if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
+    console.log(HELP);
+    return;
+  }
+  if (cmd === 'chat') {
+    await chat(rest.join(' ').trim());
+    return;
+  }
+  if (cmd === 'config' && sub === 'add') {
+    await configAdd(rest[0]);
+    return;
+  }
+  if (cmd === 'config' && sub === 'show') {
+    await configShow();
+    return;
+  }
+  // unknown: show help
+  console.log(HELP);
+}
+
+main().catch((e) => {
+  console.error(`✗ ${e.message}`);
+  process.exit(1);
+});
