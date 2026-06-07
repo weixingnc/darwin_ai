@@ -130,6 +130,11 @@ node bin/darwin memory set greeting "hello darwin"
 # 读
 node bin/darwin memory show greeting
 # hello darwin
+
+# 给 Darwin 一个身份 (system prompt, 每次 chat/repl 自动用)
+node bin/darwin memory set darwin-personality "你是 Darwin, 一个自我进化的数字生命体, 跟用户用中文简洁沟通"
+# → 下次 chat 立刻 LLM 改口说 "我是 Darwin"
+# → REPL 每次 turn 重新读, 改了立即生效不用重启
 ```
 
 **默认 backend**: filesystem, 路径 `~/.darwin/memory/<key>.json`. 写 JSON 留 W2 (`--json` flag).

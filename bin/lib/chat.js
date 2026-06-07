@@ -17,12 +17,14 @@ const EXIT_OK = 0;
 const EXIT_NO_PROVIDER = 2;
 const EXIT_CHAT_FAIL = 3;
 
+const PERSONALITY_KEY = 'darwin-personality';
+
 export async function chat(text) {
   if (!text || !text.trim()) {
     throw new Error('chat: missing message text. Usage: darwin chat "hello"');
   }
 
-  const { registry } = await sharedBootstrap();
+  const { registry, memory } = await sharedBootstrap();
 
   if (registry.list().length === 0) {
     console.log('⚠ No provider configured. Run: darwin config add provider-anthropic');
@@ -32,7 +34,16 @@ export async function chat(text) {
   const provider = registry.list()[0];
   console.log(`🤖 Using ${provider.name}\n`);
 
-  const r = await provider.chat([{ role: 'user', content: text }]);
+  // Darwin identity: read system prompt from memory. If set, prepend to messages.
+  // Lets user give Darwin a persistent, mutable identity without code changes.
+  const messages = [];
+  const personality = await _getPersonality(memory);
+  if (personality) {
+    messages.push({ role: 'system', content: personality });
+  }
+  messages.push({ role: 'user', content: text });
+
+  const r = await provider.chat(messages);
 
   if (!r.ok) {
     console.error(`✗ ${r.error?.message || 'chat failed'}`);
@@ -41,4 +52,19 @@ export async function chat(text) {
 
   console.log(r.value.content);
   return EXIT_OK;
+}
+
+async function _getPersonality(memory) {
+  try {
+    const v = await memory.get(PERSONALITY_KEY);
+    if (typeof v === 'string' && v.trim().length > 0) {
+      return v;
+    }
+    if (v && typeof v === 'object' && typeof v.content === 'string') {
+      return v.content;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
