@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * Darwin v2 CLI — D-5 用户面入口 (PR 19a).
+ * Darwin v2 CLI — D-5 用户面入口 (PR 19a + 19b).
  *
- * MVP: chat (单次) + config (add/show) + help.
- * PR 19b 会加: repl + plugin + memory sub-commands.
- *
- * Usage:
- *   darwin chat "..."              single-shot chat
- *   darwin config add <module>     interactive config (provider-anthropic | provider-openai)
- *   darwin config show             list configs (redacted)
+ * Sub-commands:
+ *   darwin chat "..."              single-shot chat (PR 19a)
+ *   darwin config add <module>     interactive config add (PR 19a)
+ *   darwin config show             list configs, secrets redacted (PR 19a)
+ *   darwin repl                    persistent chat (PR 19b)
+ *   darwin plugin add <path>       load + init + enable a plugin (PR 19b)
+ *   darwin plugin list             list loaded plugins (PR 19b)
+ *   darwin memory show <key>       read a memory key (PR 19b)
+ *   darwin memory set <key> <val>  write a memory key (string MVP, PR 19b)
  *   darwin help                    this help
  *
  * v2 design: 0 真凭据. config 走 ${VAR} 占位符, key 走 ~/.darwin/.env.
@@ -16,6 +18,9 @@
 
 import { chat } from './lib/chat.js';
 import { configAdd, configShow } from './lib/config.js';
+import { repl } from './lib/repl.js';
+import { pluginAdd, pluginList } from './lib/plugin.js';
+import { memoryShow, memorySet } from './lib/memory.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -23,8 +28,13 @@ const HELP = `Darwin v2 — digital life CLI
 
 Usage:
   darwin chat "..."              single-shot chat (uses first configured provider)
+  darwin repl                    persistent chat (Ctrl+D to exit, "clear" to wipe history)
   darwin config add <module>     interactive config add
   darwin config show             list configs (secrets redacted)
+  darwin plugin add <path>       load + init + enable a plugin
+  darwin plugin list             list loaded plugins
+  darwin memory show <key>       read a memory key
+  darwin memory set <key> <val>  write a memory key (string only MVP)
   darwin help                    this help
 
 Supported modules: provider-anthropic, provider-openai
@@ -39,12 +49,32 @@ async function main() {
     await chat(rest.join(' ').trim());
     return;
   }
+  if (cmd === 'repl') {
+    await repl();
+    return;
+  }
   if (cmd === 'config' && sub === 'add') {
     await configAdd(rest[0]);
     return;
   }
   if (cmd === 'config' && sub === 'show') {
     await configShow();
+    return;
+  }
+  if (cmd === 'plugin' && sub === 'add') {
+    await pluginAdd(rest[0]);
+    return;
+  }
+  if (cmd === 'plugin' && sub === 'list') {
+    await pluginList();
+    return;
+  }
+  if (cmd === 'memory' && sub === 'show') {
+    await memoryShow(rest[0]);
+    return;
+  }
+  if (cmd === 'memory' && sub === 'set') {
+    await memorySet(rest[0], rest.slice(1).join(' '));
     return;
   }
   // unknown: show help
