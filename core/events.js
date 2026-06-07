@@ -5,8 +5,6 @@
  * - core: framework core
  * - lifecycle: bootstrap / shutdown
  * - provider: LLM providers (Darwin self-evolves these later)
- * - tool: tools (Darwin self-evolves these later)
- * - skill: skills (Darwin self-evolves these later)
  * - memory: memory backends (Darwin self-evolves these later)
  * - evolution: self-evolution (v3 implements handlers)
  * - plugin: plugin loader (v3 implements)
@@ -16,6 +14,10 @@
  *
  * v1 lesson: event names are STABLE — changing them breaks all subscribers.
  * Adding new ones is fine; renaming/removing is a breaking change (requires ADR).
+ *
+ * v2 launch cleanup (2026-06-07): removed tool/skill/adapter events.
+ * These are "Darwin self-evolves later" — adding them back is fine when
+ * the matching module ships, but at v2 launch core events stay minimal.
  */
 
 export const EVENTS = Object.freeze({
@@ -36,38 +38,6 @@ export const EVENTS = Object.freeze({
   PROVIDER_CALL_AFTER: 'provider:call:after',
   PROVIDER_CALL_ERROR: 'provider:call:error',
 
-  // ─── tool: tools ──────────────────────────────────
-  TOOL_REGISTER: 'tool:register',
-  TOOL_EXECUTE_BEFORE: 'tool:execute:before',
-  TOOL_EXECUTE_AFTER: 'tool:execute:after',
-  TOOL_EXECUTE_ERROR: 'tool:execute:error',
-
-  // ─── skill: skills ────────────────────────────────
-  SKILL_REGISTER: 'skill:register',
-  SKILL_EXECUTE_BEFORE: 'skill:execute:before',
-  SKILL_EXECUTE_AFTER: 'skill:execute:after',
-
-  // ─── skill registry (PR 16a) ─────────────────────
-  // Skill = Darwin's "ability" layer (chat / code / search / ...). The
-  // registry is defensive (multi-tenant, never throws); errors surface
-  // via SKILL_*_ERROR. Runtime lifecycle events arrive in PR 16b+.
-  SKILL_UNREGISTER: 'skill:unregister',
-  SKILL_REGISTER_ERROR: 'skill:register:error',
-  SKILL_GET_ERROR: 'skill:get:error',
-  SKILL_UNREGISTER_ERROR: 'skill:unregister:error',
-  SKILL_INVOKE_ERROR: 'skill:invoke:error',
-  SKILL_VALIDATE_ERROR: 'skill:validate:error',
-  SKILL_ERROR: 'skill:error',
-
-  // ─── skill loader (PR 16b) ────────────────────────
-  // Per-stage success events for the 5-stage skill lifecycle
-  // (discover → load → validate → register → unload). Loader NEVER
-  // throws — failures emit SKILL_LOAD_ERROR (defensive, ANTI-PATTERNS A-5).
-  SKILL_LOAD: 'skill:load',
-  SKILL_LOAD_ERROR: 'skill:load:error',
-  SKILL_ENABLE: 'skill:enable',
-  SKILL_DISABLE: 'skill:disable',
-
   // ─── memory: memory backends ──────────────────────
   MEMORY_STORE: 'memory:store',
   MEMORY_RETRIEVE: 'memory:retrieve',
@@ -82,7 +52,7 @@ export const EVENTS = Object.freeze({
   MEMORY_REGISTER_ERROR: 'memory:register:error',
   MEMORY_UNREGISTER_ERROR: 'memory:unregister:error',
   MEMORY_GET_ERROR_MEMORY: 'memory:get:error:memory',
-  // Backend-level error events (reserved for PR 13b concrete backends).
+  // Backend-level error events (reserved for concrete backends).
   MEMORY_GET_ERROR: 'memory:get:error',
   MEMORY_SET_ERROR: 'memory:set:error',
   MEMORY_DELETE_ERROR: 'memory:delete:error',
@@ -117,19 +87,6 @@ export const EVENTS = Object.freeze({
   PLUGIN_GET_ERROR: 'plugin:get:error',
   PLUGIN_UNREGISTER_ERROR: 'plugin:unregister:error',
 
-  // ─── adapter registry (PR 12a) ────────────────────
-  // Adapter = Darwin's "continuous-run" carrier (feishu / slack / discord / webhook).
-  // AdapterRegistry never throws; success / error paths emit events.
-  ADAPTER_REGISTER: 'adapter:register',
-  ADAPTER_UNREGISTER: 'adapter:unregister',
-  ADAPTER_REGISTER_ERROR: 'adapter:register:error',
-  ADAPTER_GET_ERROR: 'adapter:get:error',
-  ADAPTER_UNREGISTER_ERROR: 'adapter:unregister:error',
-  // ─── adapter: feishu channel (PR 12a — events only; impl in PR 12b) ──
-  ADAPTER_FEISHU_MESSAGE_IN: 'adapter:feishu:message:in',
-  ADAPTER_FEISHU_MESSAGE_OUT: 'adapter:feishu:message:out',
-  ADAPTER_FEISHU_ERROR: 'adapter:feishu:error',
-
   // ─── plugin loader (PR 11b) ───────────────────────
   // Per-stage success events. Loader NEVER throws — failures emit *_ERROR.
   PLUGIN_LOAD: 'plugin:load',
@@ -150,10 +107,7 @@ export const EVENT_DOMAINS = Object.freeze({
   CORE: 'core',
   LIFECYCLE: 'lifecycle',
   PROVIDER: 'provider',
-  TOOL: 'tool',
-  SKILL: 'skill',
   MEMORY: 'memory',
   EVOLUTION: 'evolution',
   PLUGIN: 'plugin',
-  ADAPTER: 'adapter',
 });

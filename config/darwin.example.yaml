@@ -7,6 +7,10 @@
 # v1 lesson (ANTI-PATTERNS A-4): adapter-feishu L86-90 hard-coded env read.
 # v2 rule: ALL config goes through ConfigResolver.get(moduleName).
 #
+# v2 launch cleanup (2026-06-07): removed adapter-feishu block.
+# Adapter is "Darwin self-evolves later" — not part of v2 launch core.
+# Re-add when the matching module ships (Darwin writes the block itself).
+#
 # ${VAR} expansion:
 #   - read at resolve time
 #   - credential env has priority over process.env
@@ -41,16 +45,6 @@ provider-anthropic:
     - tool-call
     - stream
     - vision
-
-# ────────────────────────────────────────────────────
-# Adapter: Feishu (Darwin 自身接入飞书)
-# ────────────────────────────────────────────────────
-adapter-feishu:
-  app_id: ${FEISHU_APP_ID}
-  app_secret: ${FEISHU_APP_SECRET}
-  verification_token: ${FEISHU_VERIFICATION_TOKEN}
-  encrypt_key: ${FEISHU_ENCRYPT_KEY}
-  webhook_url: ${FEISHU_WEBHOOK_URL}
 
 # ────────────────────────────────────────────────────
 # Memory backend

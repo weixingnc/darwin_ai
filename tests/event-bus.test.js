@@ -183,13 +183,11 @@ describe('EventBus + EVENTS constants', () => {
     }, /Cannot assign to read only property/);
   });
 
-  test('EVENTS has all required domains', () => {
+  test('EVENTS has all required domains (core only — adapter/skill/tool removed at v2 launch cleanup 2026-06-07)', () => {
     const required = [
       'CORE_READY',
       'LIFECYCLE_BOOTSTRAP_START',
       'PROVIDER_CALL_BEFORE',
-      'TOOL_EXECUTE_AFTER',
-      'SKILL_REGISTER',
       'MEMORY_STORE',
       'EVOLUTION_APPLY_AFTER',
       'PLUGIN_LOAD_REQUEST',
@@ -197,18 +195,6 @@ describe('EventBus + EVENTS constants', () => {
     for (const key of required) {
       assert.ok(EVENTS[key], `EVENTS.${key} must exist`);
       assert.ok(EVENTS[key].includes(':'), `EVENTS.${key} must use ':' separator`);
-    }
-  });
-
-  test('PR 16b skill loader events registerable (4 new SKILL_* events)', () => {
-    const bus = new EventBus();
-    for (const e of [
-      EVENTS.SKILL_LOAD,
-      EVENTS.SKILL_LOAD_ERROR,
-      EVENTS.SKILL_ENABLE,
-      EVENTS.SKILL_DISABLE,
-    ]) {
-      assert.doesNotThrow(() => bus.registerSchema(e));
     }
   });
 });

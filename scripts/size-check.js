@@ -10,8 +10,10 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const MAX_LINES = 1000;
-// PR 11a/11b/12a 教训 (2026-06-06): plugin/ tests/ adapter/ 也需守 1000 行硬约束, 加进 SCAN_DIRS
-const SCAN_DIRS = ['core', 'lifecycle', 'provider', 'plugin', 'adapter', 'tool', 'skill', 'memory', 'demo', 'scripts', 'tests'];
+// v2 launch cleanup (2026-06-07): SCAN_DIRS narrowed to core only.
+// adapter/skill/tool dirs removed (Darwin self-evolves them later).
+// Plugin stays (PR 11a/11b — part of v2 launch core).
+const SCAN_DIRS = ['core', 'lifecycle', 'provider', 'plugin', 'memory', 'scripts', 'tests'];
 const SKIP_FILES = new Set([]);
 
 function getFiles() {
