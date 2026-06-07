@@ -63,6 +63,27 @@ export async function repl() {
     console.log(`📜 Restored ${history.messages.length} prior messages\n`);
   }
 
+  // Build a "prior conversation" system-context block from the last N turns.
+  // Without this, the LLM treats history.messages as continuation and doesn't
+  // anchor on prior facts. With this, the model sees an explicit "you already
+  // talked to this user about X" — recall works.
+  const HISTORY_CONTEXT_LIMIT = 10;
+  const HISTORY_TURN_CHAR_CAP = 180;
+  function historyToContext(messages) {
+    const recent = messages.slice(-HISTORY_CONTEXT_LIMIT);
+    if (recent.length === 0) {
+      return null;
+    }
+    const lines = recent.map((m) => {
+      const label = m.role === 'user' ? '用户' : '你';
+      const trimmed = String(m.content || '')
+        .replace(/\s+/g, ' ')
+        .slice(0, HISTORY_TURN_CHAR_CAP);
+      return `${label}: ${trimmed}`;
+    });
+    return `以下是你与该用户最近的对话历史（请记住关键信息，回复时自然引用即可）:\n${lines.join('\n')}`;
+  }
+
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -89,12 +110,20 @@ export async function repl() {
     }
 
     history.messages.push({ role: 'user', content: text });
-    // Re-read personality each turn so live changes take effect immediately
+    // Re-read personality each turn so live changes take effect immediately.
+    // Inject historyToContext as an explicit system block so the LLM treats
+    // prior turns as "things you already know about this user" instead of
+    // just chat continuation. Critical for cross-session recall.
     const livePersonality = await _getPersonality(memory);
-    const fullMessages = [
-      ...(livePersonality ? [{ role: 'system', content: livePersonality }] : []),
-      ...history.messages,
-    ];
+    const historyContext = historyToContext(history.messages);
+    const systemMessages = [];
+    if (livePersonality) {
+      systemMessages.push({ role: 'system', content: livePersonality });
+    }
+    if (historyContext) {
+      systemMessages.push({ role: 'system', content: historyContext });
+    }
+    const fullMessages = [...systemMessages, ...history.messages];
     const r = await provider.chat(fullMessages);
     if (!r.ok) {
       console.error(`✗ ${r.error?.message || 'chat failed'}\n`);
