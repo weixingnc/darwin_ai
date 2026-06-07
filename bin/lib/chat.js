@@ -32,9 +32,7 @@ export async function chat(text) {
   const provider = registry.list()[0];
   console.log(`🤖 Using ${provider.name}\n`);
 
-  const r = await provider.chat({
-    messages: [{ role: 'user', content: text }],
-  });
+  const r = await provider.chat([{ role: 'user', content: text }]);
 
   if (!r.ok) {
     console.error(`✗ ${r.error?.message || 'chat failed'}`);

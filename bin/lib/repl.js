@@ -65,7 +65,7 @@ export async function repl() {
     }
 
     history.messages.push({ role: 'user', content: text });
-    const r = await provider.chat({ messages: history.messages });
+    const r = await provider.chat(history.messages);
     if (!r.ok) {
       console.error(`✗ ${r.error?.message || 'chat failed'}\n`);
       // pop the failed user message so history stays clean
