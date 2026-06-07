@@ -5,6 +5,11 @@
  * turn, persists after each assistant reply. On next REPL start, history is
  * restored — multi-session continuity for free.
  *
+ * Context assembly delegated to core/context-loader.js (5-layer model:
+ * identity + personality + learnings + history + this turn). Re-running the
+ * loader per turn lets live `darwin memory set` changes take effect
+ * immediately without restart.
+ *
  * Commands inside REPL:
  *   <text>      — send to provider
  *   clear       — wipe history
@@ -17,12 +22,13 @@
 
 import { createInterface } from 'node:readline';
 import { sharedBootstrap } from './_shared.js';
+import { loadContext } from '../../core/context-loader.js';
 
 const HISTORY_KEY = 'darwin-repl-history';
 const PERSONALITY_KEY = 'darwin-personality';
 const EXIT_NO_PROVIDER = 2;
 
-async function _getPersonality(memory) {
+async function _getPersonalityText(memory) {
   try {
     const v = await memory.get(PERSONALITY_KEY);
     if (typeof v === 'string' && v.trim().length > 0) {
@@ -46,7 +52,7 @@ export async function repl() {
   }
 
   const provider = registry.list()[0];
-  const personality = await _getPersonality(memory);
+  const personality = await _getPersonalityText(memory);
   const identityLine = personality
     ? `   identity: ${personality.split('\n')[0].slice(0, 60)}${personality.length > 60 ? '…' : ''}`
     : '   identity: (unset — run: darwin memory set darwin-personality "你是 Darwin, ...")';
@@ -55,33 +61,11 @@ export async function repl() {
   console.log('   (Ctrl+D or "exit" to quit, "clear" to wipe history)\n');
 
   // Load persisted history (default empty if first run).
-  // history only contains user/assistant turns; system prompt is injected
-  // per-call from memory (so live `darwin memory set darwin-personality`
-  // changes take effect on the next turn without restart).
+  // Loader rebuilds the 5-layer context every turn so live personality edits
+  // and memory writes take effect on the very next prompt.
   const history = (await memory.get(HISTORY_KEY)) || { messages: [] };
   if (history.messages.length > 0) {
     console.log(`📜 Restored ${history.messages.length} prior messages\n`);
-  }
-
-  // Build a "prior conversation" system-context block from the last N turns.
-  // Without this, the LLM treats history.messages as continuation and doesn't
-  // anchor on prior facts. With this, the model sees an explicit "you already
-  // talked to this user about X" — recall works.
-  const HISTORY_CONTEXT_LIMIT = 10;
-  const HISTORY_TURN_CHAR_CAP = 180;
-  function historyToContext(messages) {
-    const recent = messages.slice(-HISTORY_CONTEXT_LIMIT);
-    if (recent.length === 0) {
-      return null;
-    }
-    const lines = recent.map((m) => {
-      const label = m.role === 'user' ? '用户' : '你';
-      const trimmed = String(m.content || '')
-        .replace(/\s+/g, ' ')
-        .slice(0, HISTORY_TURN_CHAR_CAP);
-      return `${label}: ${trimmed}`;
-    });
-    return `以下是你与该用户最近的对话历史（请记住关键信息，回复时自然引用即可）:\n${lines.join('\n')}`;
   }
 
   const rl = createInterface({
@@ -110,19 +94,10 @@ export async function repl() {
     }
 
     history.messages.push({ role: 'user', content: text });
-    // Re-read personality each turn so live changes take effect immediately.
-    // Inject historyToContext as an explicit system block so the LLM treats
-    // prior turns as "things you already know about this user" instead of
-    // just chat continuation. Critical for cross-session recall.
-    const livePersonality = await _getPersonality(memory);
-    const historyContext = historyToContext(history.messages);
-    const systemMessages = [];
-    if (livePersonality) {
-      systemMessages.push({ role: 'system', content: livePersonality });
-    }
-    if (historyContext) {
-      systemMessages.push({ role: 'system', content: historyContext });
-    }
+    const { systemMessages, meta } = await loadContext({
+      memory,
+      historyMessages: history.messages,
+    });
     const fullMessages = [...systemMessages, ...history.messages];
     const r = await provider.chat(fullMessages);
     if (!r.ok) {
@@ -134,7 +109,13 @@ export async function repl() {
     }
     history.messages.push({ role: 'assistant', content: r.value.content });
     await memory.set(HISTORY_KEY, history);
-    console.log(`\n${provider.name}> ${r.value.content}\n`);
+    console.log(`\n${provider.name}> ${r.value.content}`);
+    if (process.env.DARWIN_DEBUG) {
+      console.log(
+        `\n   [ctx layers: ${meta.layers.join('+')}, history=${meta.counts.history}, learnings=${meta.counts.learnings}]`,
+      );
+    }
+    console.log('');
     rl.prompt();
   });
 

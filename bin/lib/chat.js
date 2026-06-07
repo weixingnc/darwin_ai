@@ -12,12 +12,11 @@
  */
 
 import { sharedBootstrap } from './_shared.js';
+import { loadContext } from '../../core/context-loader.js';
 
 const EXIT_OK = 0;
 const EXIT_NO_PROVIDER = 2;
 const EXIT_CHAT_FAIL = 3;
-
-const PERSONALITY_KEY = 'darwin-personality';
 
 export async function chat(text) {
   if (!text || !text.trim()) {
@@ -34,16 +33,12 @@ export async function chat(text) {
   const provider = registry.list()[0];
   console.log(`🤖 Using ${provider.name}\n`);
 
-  // Darwin identity: read system prompt from memory. If set, prepend to messages.
-  // Lets user give Darwin a persistent, mutable identity without code changes.
-  const messages = [];
-  const personality = await _getPersonality(memory);
-  if (personality) {
-    messages.push({ role: 'system', content: personality });
-  }
-  messages.push({ role: 'user', content: text });
+  // 5-layer context: identity + personality + learnings + history + this turn.
+  // Chat is one-shot so history is always empty; layers 1-3 do the work.
+  const { systemMessages } = await loadContext({ memory, historyMessages: [] });
+  const fullMessages = [...systemMessages, { role: 'user', content: text }];
 
-  const r = await provider.chat(messages);
+  const r = await provider.chat(fullMessages);
 
   if (!r.ok) {
     console.error(`✗ ${r.error?.message || 'chat failed'}`);
@@ -52,19 +47,4 @@ export async function chat(text) {
 
   console.log(r.value.content);
   return EXIT_OK;
-}
-
-async function _getPersonality(memory) {
-  try {
-    const v = await memory.get(PERSONALITY_KEY);
-    if (typeof v === 'string' && v.trim().length > 0) {
-      return v;
-    }
-    if (v && typeof v === 'object' && typeof v.content === 'string') {
-      return v.content;
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
