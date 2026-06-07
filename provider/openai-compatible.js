@@ -25,7 +25,14 @@ function normalizeBaseUrl(baseUrl) {
   if (typeof baseUrl !== 'string' || baseUrl.length === 0) {
     return '';
   }
-  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  // Strip trailing slash, then strip trailing /v1 (OpenAI-style). This lets
+  // users pass EITHER `https://api.openai.com/v1` (industry standard, what
+  // OpenAI's own docs show) OR `https://api.openai.com` (bare base). Darwin
+  // then always appends `/v1/chat/completions` etc. without producing
+  // double-/v1 URLs (e.g. /v1/v1/chat/completions → 404).
+  let url = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  url = url.replace(/\/v1$/, '');
+  return url;
 }
 
 function buildHeaders(apiKey) {
@@ -90,9 +97,10 @@ export class OpenAICompatibleProvider extends ProviderBase {
     this._apiKey = opts.apiKey || '';
     this._defaultModel = opts.defaultModel || '';
     this._timeoutMs =
-      typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0 ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
-    this._protocol =
-      opts.protocol || createOpenAICompatibleProtocol({ eventBus: opts.eventBus });
+      typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0
+        ? opts.timeoutMs
+        : DEFAULT_TIMEOUT_MS;
+    this._protocol = opts.protocol || createOpenAICompatibleProtocol({ eventBus: opts.eventBus });
     this._streamProtocol =
       opts.streamProtocol || new OpenAICompatibleStreamProtocol({ eventBus: opts.eventBus });
   }
@@ -169,13 +177,21 @@ export class OpenAICompatibleProvider extends ProviderBase {
     let chunkCount = 0;
     try {
       const res = await this._openStreamResponse(messages, opts);
-      for await (const ev of this._streamProtocol.parseStream(res, { timeoutMs: this._timeoutMs })) {
-        if (ev && ev.type !== 'done') { chunkCount++; }
+      for await (const ev of this._streamProtocol.parseStream(res, {
+        timeoutMs: this._timeoutMs,
+      })) {
+        if (ev && ev.type !== 'done') {
+          chunkCount++;
+        }
         yield ev;
       }
       this._bus.emit(EVENTS.PROVIDER_CALL_AFTER, { ...ctx, count: chunkCount });
     } catch (err) {
-      const norm = { message: (err && err.message) || String(err), name: err && err.name, status: err && err.status };
+      const norm = {
+        message: (err && err.message) || String(err),
+        name: err && err.name,
+        status: err && err.status,
+      };
       this._bus.emit(EVENTS.PROVIDER_CALL_ERROR, { ...ctx, error: norm });
       yield { type: 'error', error: norm };
     }
@@ -189,12 +205,24 @@ export class OpenAICompatibleProvider extends ProviderBase {
     if (!bodyEntry.ok) {
       throw new Error(`[openai-compatible] buildStreamRequest failed: ${bodyEntry.error.message}`);
     }
-    const res = await fetchWithTimeout(`${this._baseUrl}${CHAT_PATH}`, {
-      method: 'POST', headers: buildHeaders(this._apiKey), body: JSON.stringify(bodyEntry.value),
-    }, this._timeoutMs);
-    if (res.ok) { return res; }
+    const res = await fetchWithTimeout(
+      `${this._baseUrl}${CHAT_PATH}`,
+      {
+        method: 'POST',
+        headers: buildHeaders(this._apiKey),
+        body: JSON.stringify(bodyEntry.value),
+      },
+      this._timeoutMs,
+    );
+    if (res.ok) {
+      return res;
+    }
     let body = '';
-    try { body = await res.text(); } catch { /* noop */ }
+    try {
+      body = await res.text();
+    } catch {
+      /* noop */
+    }
     const err = new Error(`[openai-compatible] stream HTTP ${res.status}: ${body || 'no body'}`);
     err.status = res.status;
     throw err;

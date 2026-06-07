@@ -197,22 +197,24 @@ darwin help                    帮助
 **原因**: HOME 不可写.  
 **解决**: `chmod +w ~` 或换 HOME (`export HOME=/tmp/foo`).
 
-### Q: 怎么换 LLM (从 Claude 切到 DeepSeek)?
+### Q: 怎么换 LLM (从 Claude 切到 DeepSeek / MiniMax)?
 
 ```bash
 # 1. 加 openai 兼容 provider
 node bin/darwin config add provider-openai
-# base_url: https://api.deepseek.com/v1
-# api_key: sk-deepseek-...
-# default_model: deepseek-chat
+# base_url: https://api.deepseek.com/v1   (或 https://api.minimaxi.com/v1, 带 /v1 行业标准)
+# api_key: sk-deepseek-... (或 MiniMax 的 key)
+# default_model: deepseek-chat   (或 MiniMax-M3)
 
 # 2. 切默认 = 删 anthropic 的 yaml (Darwin 取第一个注册的 provider)
 mv ~/.darwin/provider-anthropic.yaml ~/.darwin/provider-anthropic.yaml.bak
 
 # 3. 跑
 node bin/darwin chat "你好"
-# 🤖 Using openai-compatible    ← 切了
+# 🤖 Using openai-compatible   ← 切了
 ```
+
+> base_url 带不带 `/v1` 都行, Darwin 自动去重. 推荐带 (跟 OpenAI 官方文档一致).
 
 ### Q: 怎么写自己的 plugin?
 

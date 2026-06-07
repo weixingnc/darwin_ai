@@ -17,8 +17,13 @@
 #   - missing var → '' (empty string) + warn, never throw
 
 # ────────────────────────────────────────────────────
-# Provider: OpenAI compatible (covers DeepSeek / Qwen / GLM / Moonshot)
+# Provider: OpenAI compatible (covers DeepSeek / Qwen / GLM / Moonshot / MiniMax)
 # v2 launch note: 9/10 国产 LLM 走 OpenAI 兼容协议，零改动支持
+# base_url 行业标准写法 (带 /v1, 跟 OpenAI 官方文档一致):
+#   OpenAI:    https://api.openai.com/v1
+#   DeepSeek:  https://api.deepseek.com/v1
+#   MiniMax:   https://api.minimaxi.com/v1
+# Darwin 会自动去重 /v1, 不带 /v1 也行
 # ────────────────────────────────────────────────────
 provider-openai:
   base_url: ${OPENAI_BASE_URL}
