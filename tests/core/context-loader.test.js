@@ -333,3 +333,173 @@ test('ContextLoader: end-to-end 5-layer integration with realistic shapes', asyn
   assert.ok(systemMessages[2].content.includes('Asia/Shanghai'));
   assert.ok(systemMessages[2].content.includes('✅'));
 });
+
+// =============================================================================
+// L6 — SKILL trigger injection (PR-23)
+// =============================================================================
+
+import { createRegistry } from '../../core/skill-registry.js';
+
+function makeSkillRegistry() {
+  const reg = createRegistry();
+  reg.set('weather', {
+    name: 'weather',
+    triggers: ['天气', 'weather'],
+    systemPromptHint: '调用 weather tool 查询实时数据.',
+  });
+  reg.set('reminder', {
+    name: 'reminder',
+    triggers: ['提醒', 'remind'],
+    systemPromptHint: '调用 reminder tool 设置定时任务.',
+  });
+  reg.set('translate', {
+    name: 'translate',
+    triggers: ['翻译', 'translate'],
+    systemPromptHint: '调用 translate tool 做多语言翻译.',
+  });
+  reg.set('empty-hint', {
+    name: 'empty-hint',
+    triggers: ['empty'],
+    systemPromptHint: '',
+  });
+  return reg;
+}
+
+test('L6: currentTurn=null → meta.layers does NOT include skills (backward compat)', async () => {
+  const reg = makeSkillRegistry();
+  const { systemMessages, meta } = await loadContext({
+    historyMessages: [],
+    skillRegistry: reg,
+    currentTurn: null,
+  });
+  assert.equal(meta.layers.includes('skills'), false);
+  assert.equal(meta.counts.skills, undefined);
+  // Backward compat: same as no-skill case
+  assert.equal(systemMessages.length, 1); // identity only
+});
+
+test('L6: skillRegistry=null → L6 silently skipped, L1-L5 unchanged', async () => {
+  const { systemMessages, meta } = await loadContext({
+    memory: null,
+    historyMessages: [{ role: 'user', content: 'hi' }],
+    skillRegistry: null,
+    currentTurn: { text: '北京天气怎么样' },
+  });
+  assert.equal(meta.layers.includes('skills'), false);
+  assert.equal(meta.counts.skills, undefined);
+  // L1 + L4 still present
+  assert.deepEqual(meta.layers, ['identity', 'history']);
+  assert.equal(systemMessages.length, 2);
+});
+
+test('L6: trigger word matched → injects systemPromptHint for that skill', async () => {
+  const reg = makeSkillRegistry();
+  const { systemMessages, meta } = await loadContext({
+    historyMessages: [],
+    skillRegistry: reg,
+    currentTurn: { text: '查一下明天北京天气' },
+  });
+  assert.ok(meta.layers.includes('skills'));
+  assert.equal(meta.counts.skills, 1);
+  const skillBlock = systemMessages.find((m) => m.content.includes('触发的可用技能'));
+  assert.ok(skillBlock);
+  assert.ok(skillBlock.content.includes('[weather]'));
+  assert.ok(skillBlock.content.includes('调用 weather tool'));
+  assert.ok(skillBlock.content.includes('"天气"'));
+});
+
+test('L6: matched 3 skills with skillTriggerMax=2 → only first 2 injected', async () => {
+  const reg = makeSkillRegistry();
+  const { systemMessages, meta } = await loadContext({
+    historyMessages: [],
+    skillRegistry: reg,
+    currentTurn: { text: '明天北京天气怎么样, 顺便提醒我开会, 再翻译一下邮件' },
+    config: { skillTriggerMax: 2 },
+  });
+  assert.equal(meta.counts.skills, 2);
+  const skillBlock = systemMessages.find((m) => m.content.includes('触发的可用技能'));
+  assert.ok(skillBlock);
+  // First two by insertion order: weather, reminder
+  assert.ok(skillBlock.content.includes('[weather]'));
+  assert.ok(skillBlock.content.includes('[reminder]'));
+  // Third (translate) must be truncated out
+  assert.equal(skillBlock.content.includes('[translate]'), false);
+});
+
+test('L6: matched skill with empty systemPromptHint → that skill skipped, not counted', async () => {
+  // Build a registry where the only matching skill has empty hint
+  const reg = createRegistry();
+  reg.set('empty-hint', {
+    name: 'empty-hint',
+    triggers: ['magic'],
+    systemPromptHint: '',
+  });
+  reg.set('real', {
+    name: 'real',
+    triggers: ['magic'],
+    systemPromptHint: 'Real hint.',
+  });
+  const { systemMessages, meta } = await loadContext({
+    historyMessages: [],
+    skillRegistry: reg,
+    currentTurn: { text: 'do the magic trick' },
+  });
+  // Only "real" should inject; "empty-hint" silently skipped
+  assert.equal(meta.counts.skills, 1);
+  const skillBlock = systemMessages.find((m) => m.content.includes('触发的可用技能'));
+  assert.ok(skillBlock);
+  assert.ok(skillBlock.content.includes('[real]'));
+  assert.equal(skillBlock.content.includes('[empty-hint]'), false);
+});
+
+test('L6: L1-L5 order unchanged when L6 is active (snapshot)', async () => {
+  const store = new Map([
+    ['darwin-personality', '你是 X'],
+    ['user-lang', '中文'],
+  ]);
+  const fakeMemory = {
+    async get(key) {
+      return store.get(key) || null;
+    },
+    async list(prefix) {
+      return Array.from(store.keys()).filter((k) => k.startsWith(prefix));
+    },
+  };
+  const reg = makeSkillRegistry();
+  const history = [{ role: 'user', content: 'hi' }];
+  const { systemMessages, meta } = await loadContext({
+    memory: fakeMemory,
+    historyMessages: history,
+    skillRegistry: reg,
+    currentTurn: { text: '明天天气' },
+  });
+  // Expected order: identity, personality, learnings, history, skills
+  assert.deepEqual(meta.layers, ['identity', 'personality', 'learnings', 'history', 'skills']);
+  assert.equal(systemMessages.length, 5);
+  // Snapshot first 4 contents — must be exactly the L1-L4 blocks
+  assert.ok(systemMessages[0].content.includes('Darwin'));
+  assert.equal(systemMessages[1].content, '你是 X');
+  assert.ok(systemMessages[2].content.includes('user-lang'));
+  assert.ok(systemMessages[3].content.includes('对话历史'));
+  // L6 is last
+  assert.ok(systemMessages[4].content.includes('触发的可用技能'));
+});
+
+test('L6: trigger matching is case-insensitive ("WEATHER" hits trigger "weather")', async () => {
+  const reg = createRegistry();
+  reg.set('weather', {
+    name: 'weather',
+    triggers: ['weather'],
+    systemPromptHint: 'Weather hint here.',
+  });
+  const { systemMessages, meta } = await loadContext({
+    historyMessages: [],
+    skillRegistry: reg,
+    currentTurn: { text: 'what is the WEATHER in Tokyo?' },
+  });
+  assert.equal(meta.counts.skills, 1);
+  const skillBlock = systemMessages.find((m) => m.content.includes('触发的可用技能'));
+  assert.ok(skillBlock);
+  assert.ok(skillBlock.content.includes('[weather]'));
+  assert.ok(skillBlock.content.includes('"weather"')); // triggerHit preserves original case
+});
