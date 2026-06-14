@@ -82,7 +82,7 @@ L6 不引入新错误码。沿用 PR-22 风格："**本层 fail = 静默 skip**"
 - OpenClaw 触发器灵感：`dist/agent-tools-DkIWbsdu.js:761-769`（meta tool 名常量）+ `dist/system-prompt-config-p3G0fHzO.js:618-622`（buildSkillsSection 是 OpenClaw 拼 skill 段的位置）— v2 故意**不学 OpenClaw 把 schema 拼进 prompt**，v2 L6 只注入 systemHint 文本
 - 调研决策点 5：「保留 ContextLoader 5-layer + v3 升级路径」= `OPENCLAW_PROMPT_REFERENCE.md:561-577`（§10 决策点 #5）
 
-> **PR-23 描述（≤ 200 字）**：ContextLoader 在 L4 之后、caller 拼 L5 之前新增 L6（SKILL 触发注入）。签名追加 `skillRegistry` + `currentTurn` 两可选参数，L1-L5 零修改。`matchSkills` 纯函数读 currentTurn.text 子串匹配，命中注入 `systemPromptHint`，截到 `skillTriggerMax=2`。本层永不抛错，输出 schema 仅在 `meta.counts.skills` 增一字段，PR-22 caller 全部向后兼容。
+> **PR-23 描述（≤ 200 字）**：ContextLoader 加 L6 (SKILL 触发注入), L4→L5 间. 追加 skillRegistry+currentTurn 两可选, L1-L5 不动. matchSkills 子串匹配 currentTurn.text, 注入 systemPromptHint, 截到 skillTriggerMax=2. 永不抛错, schema 增 meta.counts.skills.
 
 ---
 
@@ -152,7 +152,7 @@ PR-24 引入 4 个**新**错误码（与 PR-25 共享完整字典见末尾"跨 P
 - v2 决策点 #6：「不做 child vm bridge / code mode」= `OPENCLAW_PROMPT_REFERENCE.md:574-577`
 - PM 拍板：「catalog 工具自描述」= `OPENCLAW_PROMPT_REFERENCE.md:152-158`（§3.5 表第 4 行）
 
-> **PR-24 描述（≤ 200 字）**：新增 `core/tool-catalog.js` + `core/meta-tools.js`。catalog 是 `Map<string, ToolEntry>` 只读视图，`ToolEntry` 含 name/summary/description/parameters/execute/fallback。3 个 meta tool（`tool_search`/`tool_describe`/`tool_call`，学 OpenClaw 抄 3 个，code 模式 v1 不做）由 `buildDefinitions()` 生成供 PR-25 loop 喂 LLM。`tool_call` 失败不抛、返 `{ok:false, errorCode, error}`，4 个新错误码见末尾共享字典。
+> **PR-24 描述（≤ 200 字）**：新增 tool-catalog.js + meta-tools.js. catalog 是 Map<name, ToolEntry> 只读. 3 meta tool (search/describe/call) 由 buildDefinitions() 喂 PR-25 loop. tool_call 失败返 {ok:false, errorCode, error}, 见末尾字典.
 
 ---
 
@@ -222,7 +222,7 @@ PR-25 **不发明新错误码**（PR-24 4 个足够），只在错误归类时�
 - v2 拍板「plugin manifest 声明降级链」= `OPENCLAW_PROMPT_REFERENCE.md:563-566`（§10 决策点 #3）
 - v1 教训「tool throws break the round」= `provider/base.js:9-12` 注释（PR 6）
 
-> **PR-25 描述（≤ 200 字）**：新增 `core/tool-call-loop.js` 导出 `runToolCallLoop` async generator。`MAX_TOOL_ROUNDS=5`（预留 5/10/20 配置档）、`MAX_TOOL_RETRY=3` + 300ms 指数退避 + jitter=0.2。错误归类学 OpenClaw 7 keyword 分三态：RECOVERABLE 不重试写回让 LLM 改参；NETWORK 走 retryAsync；PERMANENT 试 `fallback[]` 链，链用尽写错误。loop 永不抛（除 AbortError），错误全变 `LoopEvent` 推出去。
+> **PR-25 描述（≤ 200 字）**：新增 tool-call-loop.js 导出 runToolCallLoop async generator. MAX_ROUNDS=5 (5/10/20)、MAX_RETRY=3 + 300ms 退避. 错误三态: RECOVERABLE 写回、NETWORK 走 retryAsync、PERMANENT 试 fallback[] 链. loop 永不抛, 错误变 LoopEvent 推出去.
 
 ---
 
