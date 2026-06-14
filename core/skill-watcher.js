@@ -1,7 +1,34 @@
 // SkillWatcher — fs.watch hot-reload for SKILL.md (PR-21b, design §2.2/§4/§5).
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseSkillFile, registerSkill, unregisterSkill } from './skill-loader.js';
+import { createRequire } from 'node:module';
+import {
+  parseSkillFile,
+  registerSkill,
+  unregisterSkill,
+  _stashOpenClawMetadata,
+  _isOpenClawFm,
+  _extractFm,
+} from './skill-loader.js';
+
+// PR-27: OpenClaw compat — deferred require of the adapter so the
+// watcher → adapter → loader cycle resolves at runtime (not at module-load
+// time, which would TDZ-trip on skill-loader's `_internal` export).
+let _oc = null;
+let _ocReady = false;
+function _ensureAdapter() {
+  if (_ocReady) {
+    return _oc;
+  }
+  _ocReady = true;
+  try {
+    const _require = createRequire(import.meta.url);
+    _oc = _require('./openclaw-skill-adapter.js');
+  } catch {
+    _oc = null;
+  }
+  return _oc;
+}
 const DEBOUNCE = 150;
 const MD = /\.(md|markdown)$/i;
 const NRE = /^[a-z0-9-]+$/;
@@ -40,10 +67,33 @@ export function watchSkillsDir(skillsDir, registry, opts) {
     } catch {
       return unreg(abs);
     }
-    const entry = parseSkillFile(abs, content);
-    if (!entry) {
-      log('reparse failed, keeping previous entry for ' + abs);
-      return;
+    // PR-27: OpenClaw compat probe — strict gate, same as loader. PR-21b
+    // advisory 1: keep the previous entry if BOTH parses fail.
+    let entry;
+    if (_isOpenClawFm(_extractFm(content))) {
+      const adapter = _ensureAdapter();
+      if (adapter && typeof adapter.parseOpenClawSkillFile === 'function') {
+        entry = adapter.parseOpenClawSkillFile(abs, content);
+        if (!entry) {
+          log('reparse failed (openclaw), keeping previous entry for ' + abs);
+          return;
+        }
+        if (entry.openclawMetadata) {
+          _stashOpenClawMetadata(registry, entry.name, entry.openclawMetadata);
+        }
+      } else {
+        entry = parseSkillFile(abs, content);
+        if (!entry) {
+          log('reparse failed, keeping previous entry for ' + abs);
+          return;
+        }
+      }
+    } else {
+      entry = parseSkillFile(abs, content);
+      if (!entry) {
+        log('reparse failed, keeping previous entry for ' + abs);
+        return;
+      }
     }
     registerSkill(registry, entry);
   };

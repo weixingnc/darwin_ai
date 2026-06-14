@@ -36,6 +36,11 @@
  *   // -> [{ name: 'weather', triggerHit: '天气', systemHint: '...', source: 'registry' }]
  */
 
+// PR-27: route matchSkills through PR-26b v2 matcher so triggerType metadata
+// is honoured (PR-21 review advisory 1). v2 is a strict superset of the
+// prior substring-only path; signature and return shape are preserved.
+import { matchSkillsV2 as matchSkillsV2Impl } from './skill-matcher-v2.js';
+
 export const SKILL_MATCH_SOURCE_REGISTRY = 'registry';
 export const SKILL_MATCH_SOURCE_MEMORY = 'memory'; // reserved for v3
 
@@ -58,71 +63,15 @@ export function createRegistry() {
  * @param {string|null|undefined} args.text - current turn text to scan (caller-provided)
  * @param {Map<string, object>|null|undefined} args.registry - SkillRegistry (Map)
  * @param {number} [args.max=2] - max matches to return (skillTriggerMax)
- * @returns {Array<{name:string, triggerHit:string, systemHint:string, source:string}>}
+ * @returns {Array<{name:string, triggerHit:string, systemHint:string, source:string, triggerType:string, matcherVersion:string}>}
  *   - empty array if text/registry missing, or no matches
  *   - never throws
+ *   - PR-27: delegates to skill-matcher-v2 (PR-26b); output gains triggerType + matcherVersion
  */
-export function matchSkills({ text, registry, max = 2 } = {}) {
-  // Defensive: any bad input → empty array. L6 is "never throw".
-  if (typeof text !== 'string' || text.length === 0) {
-    return [];
-  }
-  if (!registry || typeof registry.entries !== 'function') {
-    return [];
-  }
-  if (typeof max !== 'number' || max <= 0 || !Number.isFinite(max)) {
-    return [];
-  }
-  return _scanRegistry(text, registry, max);
-}
-
-/**
- * Inner scan — separated to keep matchSkills under the lint complexity cap.
- * Pre-condition: text is a non-empty string, registry is a Map-like with
- * .entries(), max is a positive finite number.
- */
-function _scanRegistry(text, registry, max) {
-  const needle = text.toLowerCase();
-  const matches = [];
-
-  for (const [name, entry] of registry.entries()) {
-    if (matches.length >= max) {
-      break;
-    }
-    const triggerHit = _firstMatchingTrigger(entry, needle);
-    if (triggerHit === null) {
-      continue;
-    }
-    matches.push({
-      name: typeof name === 'string' ? name : (entry && entry.name) || '',
-      triggerHit,
-      systemHint: entry.systemPromptHint,
-      source: SKILL_MATCH_SOURCE_REGISTRY,
-    });
-  }
-
-  return matches;
-}
-
-/**
- * Return the first valid trigger (string, non-empty) that appears in `needle`
- * (already lowercased), or null. Also returns null if the entry is malformed
- * or has an empty systemPromptHint.
- */
-function _firstMatchingTrigger(entry, needle) {
-  if (!entry || !Array.isArray(entry.triggers) || entry.triggers.length === 0) {
-    return null;
-  }
-  if (typeof entry.systemPromptHint !== 'string' || entry.systemPromptHint.length === 0) {
-    return null;
-  }
-  for (const trigger of entry.triggers) {
-    if (typeof trigger !== 'string' || trigger.length === 0) {
-      continue;
-    }
-    if (needle.includes(trigger.toLowerCase())) {
-      return trigger;
-    }
-  }
-  return null;
+export function matchSkills(args = {}) {
+  // PR-27 switch: route through v2 matcher so triggerType metadata is honoured.
+  // v2 is a strict superset of the prior substring-only path (byte-equal for
+  // substring), so existing PR-23 callers see no behaviour change except for
+  // the two extra fields on each SkillMatch.
+  return matchSkillsV2Impl(args);
 }

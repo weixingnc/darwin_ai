@@ -9,7 +9,30 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { SKILL_MATCH_SOURCE_REGISTRY } from './skill-registry.js';
+// PR-27: OpenClaw compat — loader probes for OpenClaw-shaped frontmatter and
+// routes through the adapter before falling back to v2 parseSkillFile.
+// Deferred initialisation: the adapter is require()'d lazily on first
+// parseAllFiles call so the skill-loader ↔ openclaw-skill-adapter circular
+// import resolves naturally (the adapter's top-level destructure of
+// `_internal` from this module succeeds because by the time parseAllFiles
+// runs, the loader module has finished initialising).
+let _oc = null;
+let _ocReady = false;
+function _ensureAdapter() {
+  if (_ocReady) {
+    return _oc;
+  }
+  _ocReady = true;
+  try {
+    const _require = createRequire(import.meta.url);
+    _oc = _require('./openclaw-skill-adapter.js');
+  } catch {
+    _oc = null;
+  }
+  return _oc;
+}
 
 const MAX_NAME = 32;
 const MAX_HINT = 2000;
@@ -253,7 +276,7 @@ export function loadAll(skillsDir, registry) {
     return result;
   }
   result.total = files.length;
-  const valid = parseAllFiles(files, result);
+  const valid = parseAllFiles(files, result, registry);
   // priority desc → registry insertion order = match order (PR-23 contract).
   valid.sort((a, b) => b.priority - a.priority);
   for (const e of valid) {
@@ -302,7 +325,64 @@ function listSkillFiles(skillsDir) {
   return files;
 }
 
-function parseAllFiles(files, result) {
+// PR-27: side-channel for OpenClaw metadata that PR-21a's buildStored() drops
+// (the v2 stored-entry schema strips unknown fields). Keyed by registry
+// instance to avoid cross-talk when multiple registries are loaded.
+const _ocMeta = new WeakMap();
+
+/** PR-27: read OpenClaw metadata side-channel for a registry entry. */
+export function _getOpenClawMetadata(registry, name) {
+  const m = _ocMeta.get(registry);
+  return m ? m.get(name) || null : null;
+}
+
+/** PR-27: write OpenClaw metadata side-channel for a registry entry. */
+export function _stashOpenClawMetadata(registry, name, raw) {
+  let m = _ocMeta.get(registry);
+  if (!m) {
+    m = new Map();
+    _ocMeta.set(registry, m);
+  }
+  m.set(name, raw);
+}
+
+// PR-27: probe frontmatter to decide OpenClaw vs v2 routing. Strict gate —
+// only `description` / `metadata.openclaw` / darwin* fields count as OC.
+export function _isOpenClawFm(fm) {
+  if (!fm) {
+    return false;
+  }
+  const hasOc =
+    /^description\s*:/m.test(fm) ||
+    /metadata\s*:\s*\{[^}]*openclaw/.test(fm) ||
+    /\bdarwinTriggers\s*:/.test(fm) ||
+    /\bdarwinTriggerType\s*:/.test(fm) ||
+    /\bdarwinPriority\s*:/.test(fm);
+  const hasV2 =
+    /\btriggers\s*:/.test(fm) || /\btriggerType\s*:/.test(fm) || /\bversion\s*:/m.test(fm);
+  return hasOc && !hasV2;
+}
+
+export function _extractFm(content) {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  return m ? m[1] : '';
+}
+
+function _tryOpenClaw(abs, content, adapter, registry) {
+  if (!adapter || typeof adapter.isOpenClawSkillContent !== 'function') {
+    return null;
+  }
+  const entry = adapter.parseOpenClawSkillFile(abs, content);
+  if (!entry) {
+    return null;
+  }
+  if (entry.openclawMetadata) {
+    _stashOpenClawMetadata(registry, entry.name, entry.openclawMetadata);
+  }
+  return entry;
+}
+
+function parseAllFiles(files, result, registry) {
   const valid = [];
   for (const abs of files) {
     let content;
@@ -313,10 +393,20 @@ function parseAllFiles(files, result) {
       log('loadAll: read ' + abs + ': ' + err.message);
       continue;
     }
-    const entry = parseSkillFile(abs, content);
-    if (!entry) {
-      result.skipped.push({ path: abs, reason: 'parse_failed' });
-      continue;
+    const fm = _extractFm(content);
+    let entry;
+    if (_isOpenClawFm(fm)) {
+      entry = _tryOpenClaw(abs, content, _ensureAdapter(), registry);
+      if (!entry) {
+        result.skipped.push({ path: abs, reason: 'openclaw_compat_failed' });
+        continue;
+      }
+    } else {
+      entry = parseSkillFile(abs, content);
+      if (!entry) {
+        result.skipped.push({ path: abs, reason: 'parse_failed' });
+        continue;
+      }
     }
     valid.push(entry);
   }
