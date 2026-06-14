@@ -8,10 +8,16 @@
 //   4 error codes: TOOL_NOT_FOUND, INVALID_ARGS, HANDLER_ERROR, TIMEOUT
 //   1 helper: validateArgs (minimal JSON Schema check, no ajv/zod)
 
+// Tool error codes (PR-24 final, normalized for PR-25).
+// Old names kept as aliases for backward compat with PR-24 tests.
 export const TOOL_NOT_FOUND = 'TOOL_NOT_FOUND';
-export const INVALID_ARGS = 'INVALID_ARGS';
-export const HANDLER_ERROR = 'HANDLER_ERROR';
+export const TOOL_INVALID_ARGS = 'TOOL_INVALID_ARGS';
+export const TOOL_EXEC_FAILED = 'TOOL_EXEC_FAILED';
 export const TIMEOUT = 'TIMEOUT';
+
+// PR-24 aliases (deprecated but not removed)
+export const INVALID_ARGS = TOOL_INVALID_ARGS;
+export const HANDLER_ERROR = TOOL_EXEC_FAILED;
 
 export const META_TOOL_NAMES = Object.freeze({
   SEARCH: 'tool_search',
@@ -125,22 +131,31 @@ function assertEntry(entry) {
   if (!entry || typeof entry.name !== 'string' || !entry.name) {
     throw new TypeError('entry.name is required');
   }
-  if (typeof entry.handler !== 'function') {
-    throw new TypeError(`entry.handler for '${entry.name}' must be a function`);
+  // PR-24 minor 3: accept `execute` (design) or `handler` (PR-24 v1).
+  const fn = typeof entry.execute === 'function' ? entry.execute : entry.handler;
+  if (typeof fn !== 'function') {
+    throw new TypeError(`entry.execute (or handler) for '${entry.name}' must be a function`);
   }
 }
 
 function buildEntry(entry, priority) {
+  // PR-24 minor 3: accept design fields `parameters`/`execute`/`fallback`, fallback to PR-24 v1 names.
+  const parameters = entry.parameters || entry.schema || { type: 'object', properties: {} };
+  const execute = typeof entry.execute === 'function' ? entry.execute : entry.handler;
+  const fallback = Array.isArray(entry.fallback) ? [...entry.fallback] : [];
   return Object.freeze({
     name: entry.name,
     summary: String(entry.summary || entry.name),
     description: String(entry.description || entry.summary || entry.name),
     category: String(entry.category || 'general'),
-    schema: entry.schema || { type: 'object', properties: {} },
+    parameters: Object.freeze(parameters),
+    schema: parameters, // PR-24 v1 compat alias
     version: String(entry.version || '0.0.0'),
     source: String(entry.source || 'manual'),
     priority,
-    handler: entry.handler,
+    handler: execute,
+    execute,
+    fallback: Object.freeze(fallback),
   });
 }
 
@@ -209,10 +224,12 @@ export function describeTool(catalog, name) {
       name: entry.name,
       summary: entry.summary,
       description: entry.description,
-      schema: entry.schema,
+      parameters: entry.parameters,
+      schema: entry.parameters,
       category: entry.category,
       version: entry.version,
       source: entry.source,
+      fallback: entry.fallback || [],
     },
   };
 }
@@ -226,19 +243,20 @@ export async function callTool(catalog, name, args, ctx) {
   if (!entry) {
     return { ok: false, errorCode: TOOL_NOT_FOUND, error: `tool '${name}' not in catalog` };
   }
-  const check = validateArgs(args || {}, entry.schema);
+  const check = validateArgs(args || {}, entry.parameters || entry.schema);
   if (!check.ok) {
-    return { ok: false, errorCode: INVALID_ARGS, error: check.message };
+    return { ok: false, errorCode: TOOL_INVALID_ARGS, error: check.message };
   }
   if (ctx && ctx.signal && ctx.signal.aborted) {
     return { ok: false, errorCode: TIMEOUT, error: 'aborted before invoke' };
   }
   try {
-    const result = await entry.handler(args || {}, ctx || {});
+    const fn = entry.execute || entry.handler;
+    const result = await fn(args || {}, ctx || {});
     return { ok: true, result };
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
-    return { ok: false, errorCode: HANDLER_ERROR, error: message };
+    return { ok: false, errorCode: TOOL_EXEC_FAILED, error: message };
   }
 }
 

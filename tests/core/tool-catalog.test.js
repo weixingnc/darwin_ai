@@ -14,9 +14,11 @@ import {
   META_TOOL_SCHEMAS,
   META_TOOL_NAMES,
   TOOL_NOT_FOUND,
+  TOOL_INVALID_ARGS,
+  TOOL_EXEC_FAILED,
+  TIMEOUT,
   INVALID_ARGS,
   HANDLER_ERROR,
-  TIMEOUT,
 } from '../../core/tool-catalog.js';
 
 // ---------- fixtures ----------
@@ -290,5 +292,48 @@ describe('tool-catalog: integration', () => {
     ac.abort();
     const r = await callTool(c, 'x', {}, { signal: ac.signal });
     assert.equal(r.errorCode, TIMEOUT);
+  });
+});
+
+// ---------- PR-24 minor 3 regression: design fields + error codes ----------
+describe('tool-catalog: PR-24 design-field compat (minor 3 fix)', () => {
+  test('design fields: {parameters, execute, fallback} → describe + alias equality + default []', () => {
+    const c = createCatalog();
+    const e = {
+      name: 'w',
+      parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+      execute: async (a) => a,
+      fallback: ['alt1'],
+    };
+    registerTool(c, e);
+    const d = describeTool(c, 'w').tool;
+    assert.deepEqual(d.parameters, e.parameters);
+    assert.deepEqual(d.fallback, ['alt1']);
+    assert.equal('execute' in d, false);
+    assert.equal('handler' in d, false);
+    assert.equal(TOOL_INVALID_ARGS, INVALID_ARGS);
+    assert.equal(TOOL_EXEC_FAILED, HANDLER_ERROR);
+    registerTool(c, mkEntry('a'));
+    assert.deepEqual(describeTool(c, 'a').tool.fallback, []);
+  });
+
+  test('callTool returns new error code names', async () => {
+    const c = createCatalog();
+    registerTool(
+      c,
+      mkEntry('w', {
+        schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+      }),
+    );
+    assert.equal((await callTool(c, 'w', {})).errorCode, TOOL_INVALID_ARGS);
+    registerTool(
+      c,
+      mkEntry('boom', {
+        handler: async () => {
+          throw new Error('k');
+        },
+      }),
+    );
+    assert.equal((await callTool(c, 'boom', { x: 'a' })).errorCode, TOOL_EXEC_FAILED);
   });
 });

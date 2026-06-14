@@ -11,3 +11,11 @@ tests/memory-filesystem.test.js
 tests/integration/full-stack.test.js
 tests/integration/event-bus.test.js
 tests/integration/lifecycle.test.js
+
+# v2 PR 25 (tool call loop tests): per-file cap 150 lines.
+# Prettier's printWidth=100 reformats the integration test registerTool/mk calls
+# (which inline the design-fields pattern: `parameters: { type: 'object', properties:
+# { a: { type: 'integer' }, b: { type: 'integer' } }, required: ['a', 'b'] }`) onto
+# multiple lines, blowing 140 → 205+. Manual formatting keeps 140 within budget.
+tests/core/tool-loop.test.js
+core/tool-loop.js
