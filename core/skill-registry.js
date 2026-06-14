@@ -15,6 +15,10 @@
  *     // future: source / semantic fields (v3)
  *   }
  *
+ * Security note: `triggers` strings flow into the system prompt via
+ * L6 injection. Do NOT put PII (names, tokens, user input fragments)
+ * in triggers — they will be visible to the LLM and any loggers.
+ *
  * Match strategy: case-insensitive substring, first-match-wins
  * (iteration order of the registry Map is insertion order in JS,
  * which is the contract callers rely on). Capped to `max`.
@@ -39,6 +43,9 @@ export const SKILL_MATCH_SOURCE_MEMORY = 'memory'; // reserved for v3
  * Create a new SkillRegistry (Map<name, SkillEntry>).
  * Returns the underlying Map so callers can `.set()` / `.get()` directly.
  * The Map's insertion order is the matching order.
+ *
+ * v1 implementation: thin Map wrapper. v3 may upgrade to a class
+ * with frozen entries and registration-time schema validation.
  */
 export function createRegistry() {
   return new Map();
