@@ -274,6 +274,15 @@ v2 启动期 = 骨架 only. v3 自我进化期 = Darwin 自己改自己. 周边�
 
 PR 20+ 候选: vector memory / per-module example yaml / cli history / darwin init.
 
+## 调研参考
+
+| 文档                                                                       | 用途                                                                            | 状态                          |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------- |
+| [OPENCLAW_PROMPT_REFERENCE.md](./OPENCLAW_PROMPT_REFERENCE.md)             | OpenClaw prompt + tool 调研（PR-A FINAL，给 darwin-architect 对齐 PR-23/24/25） | ✅ v1.0 (2026-06-14, 1018 行) |
+| [OPENCLAW_PROMPT_REFERENCE_DRAFT.md](./OPENCLAW_PROMPT_REFERENCE_DRAFT.md) | PM 种子稿（v0.1）                                                               | 📜 历史                       |
+| [ANTI_PATTERNS.md](./ANTI_PATTERNS.md)                                     | v2 反模式清单                                                                   | ✅ v1.0                       |
+| [USAGE.md](./USAGE.md)                                                     | v2 操作说明                                                                     | ✅ v1.0                       |
+
 ## 反馈
 
 跑挂了先看 `npm test` 通不通, 再看 `~/.darwin/` 权限. 真解决不了, 跑 `node bin/darwin --version` 看版本 (W2 加) + 提 issue.
