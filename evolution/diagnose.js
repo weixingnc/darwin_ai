@@ -49,7 +49,14 @@ const TOOL_CATALOGUE = [
   'tail',
   'wc',
 ].map((s) => s.toLowerCase());
-const SKILL_CATALOGUE = ['hello-world', 'summarizer', 'translator'].map((s) => s.toLowerCase());
+const SKILL_CATALOGUE = [
+  'hello-world',
+  'summarizer',
+  'translator',
+  'code-review',
+  'commit-message',
+  'test-generator',
+].map((s) => s.toLowerCase());
 const MEMORY_CATALOGUE = ['filesystem', 'sqlite', 'vector'].map((s) => s.toLowerCase());
 
 // Scan roots. Absent dirs are reported as fully-missing, not throw.
