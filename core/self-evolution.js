@@ -211,9 +211,12 @@ export class SelfEvolution {
   }
 
   /** Generate change proposals from a diagnose report (or run diagnose first).
-   *  REAL (delegates to propose.js). */
-  async propose(report) {
-    return propose(report);
+   *  REAL (delegates to propose.js). P1-B2 fix: accepts `opts` so callers can
+   *  pass `{ proposalsDir, persist }` and the facade doesn't bypass any
+   *  downstream wiring (PR-S3 future hook). Backward compatible: opts defaults
+   *  to {} so the pre-fix `(report)` signature still works. */
+  async propose(report, opts = {}) {
+    return propose(report, opts);
   }
 
   /** Apply a proposal (write files). PR-S2 (REAL — delegates to evolution/apply.js). */

@@ -46,11 +46,16 @@ const SKILL_CATALOGUE = ['hello-world', 'summarizer', 'translator'].map((s) => s
 const MEMORY_CATALOGUE = ['filesystem', 'sqlite', 'vector'].map((s) => s.toLowerCase());
 
 // Scan roots. Absent dirs are reported as fully-missing, not throw.
+// P1-B2 (2026-06-15): memory_backends now scans BOTH `memory/` (top-level,
+// convention `*-backend.js`) AND `memory/backends/` (ADR-005 sub-dir
+// convention). New backends may live at either path; the union covers both
+// layouts. See `listMemoryBackendStems` below.
 const SCAN_ROOTS = {
   providers: path.join(REPO_ROOT, 'provider'),
   tools: path.join(REPO_ROOT, 'tool', 'builtins'),
   skills: path.join(REPO_ROOT, 'skill', 'examples'),
   memory_backends: path.join(REPO_ROOT, 'memory', 'backends'),
+  memory_backends_root: path.join(REPO_ROOT, 'memory'),
 };
 
 /**
@@ -84,6 +89,24 @@ function diff(catalogue, present) {
   return catalogue.filter((name) => !set.has(name));
 }
 
+/** List memory backend stems from BOTH `memory/` and `memory/backends/`.
+ *  Top-level files must end in `-backend.js` (e.g. `vector-backend.js` →
+ *  stem `vector`); sub-dir files use any `.js` stem. Deduplicates. */
+function listMemoryBackendStems(rootDir, subDir) {
+  const out = new Set();
+  // Top-level: `memory/<name>-backend.js` → stem = `<name>`
+  for (const stem of listJsStems(rootDir)) {
+    if (stem.endsWith('-backend')) {
+      out.add(stem.slice(0, -'-backend'.length));
+    }
+  }
+  // Sub-dir: `memory/backends/<name>.js` → stem = `<name>`
+  for (const stem of listJsStems(subDir)) {
+    out.add(stem);
+  }
+  return Array.from(out).sort();
+}
+
 /**
  * Run the full scan and return a structured report.
  * @param {object} [opts]
@@ -105,6 +128,7 @@ export async function diagnose(opts = {}) {
         tools: path.join(root, 'tool', 'builtins'),
         skills: path.join(root, 'skill', 'examples'),
         memory_backends: path.join(root, 'memory', 'backends'),
+        memory_backends_root: path.join(root, 'memory'),
       }
     : SCAN_ROOTS;
 
@@ -113,7 +137,10 @@ export async function diagnose(opts = {}) {
   const providers = listJsStems(scanRoots.providers);
   const tools = listJsStems(scanRoots.tools);
   const skills = listJsStems(scanRoots.skills);
-  const memoryBackends = listJsStems(scanRoots.memory_backends);
+  const memoryBackends = listMemoryBackendStems(
+    scanRoots.memory_backends_root,
+    scanRoots.memory_backends,
+  );
 
   const report = {
     current: {
@@ -135,4 +162,11 @@ export async function diagnose(opts = {}) {
 }
 
 // Internal hooks for tests; mirror skill-loader `_internal` pattern (PR-21a).
-export const _internal = { listJsStems, diff, SCAN_ROOTS, REPO_ROOT, PROVIDER_CATALOGUE };
+export const _internal = {
+  listJsStems,
+  listMemoryBackendStems,
+  diff,
+  SCAN_ROOTS,
+  REPO_ROOT,
+  PROVIDER_CATALOGUE,
+};

@@ -21,6 +21,7 @@ const SCAN_DIRS = [
   'plugin',
   'memory',
   'evolution',
+  'bin',
   'scripts',
   'tests',
 ];
