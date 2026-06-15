@@ -21,6 +21,7 @@ import { configAdd, configShow } from './lib/config.js';
 import { repl } from './lib/repl.js';
 import { pluginAdd, pluginList } from './lib/plugin.js';
 import { memoryShow, memorySet } from './lib/memory.js';
+import { selfEvolutionDispatch } from './lib/self-evolution.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -35,6 +36,7 @@ Usage:
   darwin plugin list             list loaded plugins
   darwin memory show <key>       read a memory key
   darwin memory set <key> <val>  write a memory key (string only MVP)
+  darwin self-evolution <sub>    self-evolution 7 api (diagnose/propose/apply/verify/rollback/audit/learn)
   darwin help                    this help
 
 Supported modules: provider-anthropic, provider-openai
@@ -85,6 +87,10 @@ async function main() {
   }
   if (cmd === 'memory' && sub === 'set') {
     await memorySet(rest[0], rest.slice(1).join(' '));
+    return;
+  }
+  if (cmd === 'self-evolution') {
+    await selfEvolutionDispatch(sub, rest);
     return;
   }
   // unknown: show help
