@@ -13,7 +13,17 @@ const MAX_LINES = 1000;
 // v2 launch cleanup (2026-06-07): SCAN_DIRS narrowed to core only.
 // adapter/skill/tool dirs removed (Darwin self-evolves them later).
 // Plugin stays (PR 11a/11b — part of v2 launch core).
-const SCAN_DIRS = ['core', 'lifecycle', 'provider', 'plugin', 'memory', 'scripts', 'tests'];
+// PR-S1 (2026-06-15): add 'evolution' — v3+ SelfEvolution module boundary.
+const SCAN_DIRS = [
+  'core',
+  'lifecycle',
+  'provider',
+  'plugin',
+  'memory',
+  'evolution',
+  'scripts',
+  'tests',
+];
 const SKIP_FILES = new Set([]);
 
 function getFiles() {

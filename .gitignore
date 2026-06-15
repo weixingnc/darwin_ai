@@ -65,6 +65,14 @@ memory/
 !/memory/*.json
 !/memory/*.md
 
+# PR-S1 (2026-06-15): v3+ SelfEvolution writes generated data here.
+# ADR-008 mandates audit/ + proposals/ are NOT committed (they are runtime
+# state, not source). The outer `memory/` rule does not match nested paths
+# in older git versions; pin them explicitly.
+memory/proposals/
+memory/audit/
+tmp/audit/
+
 # Test artifacts
 .nyc_output/
 *.lcov
