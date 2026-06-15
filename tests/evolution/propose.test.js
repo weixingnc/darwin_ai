@@ -135,11 +135,20 @@ test('buildProposal: target.path matches category template', () => {
 });
 
 test('TARGET_TEMPLATES + PRIORITY_ORDER internals are stable', () => {
-  assert.deepEqual(PRIORITY_ORDER, ['providers', 'memory_backends', 'tools', 'skills']);
+  assert.deepEqual(PRIORITY_ORDER, [
+    'providers',
+    'memory_backends',
+    'tools',
+    'skills',
+    // P3+ cycle 8 (2026-06-15): added platforms for 0→1 feishu adapter bridge.
+    'platforms',
+  ]);
   for (const cat of Object.keys(TARGET_TEMPLATES)) {
     const t = TARGET_TEMPLATES[cat]('x');
     assert.equal(typeof t.path, 'string');
     assert.equal(typeof t.type, 'string');
-    assert.match(t.rationale, /v3\+ P1 catalogue/);
+    // P3+ cycle 8: platforms use P2 catalogue prefix (not P1).
+    const expectedPrefix = cat === 'platforms' ? /v3\+ P2 catalogue/ : /v3\+ P1 catalogue/;
+    assert.match(t.rationale, expectedPrefix);
   }
 });

@@ -65,9 +65,14 @@ const TARGET_TEMPLATES = {
     type: 'skill_example',
     rationale: `Add ${name} skill example — v3+ P1 catalogue item missing from current Darwin surface.`,
   }),
+  platforms: (name) => ({
+    path: `platform/${name}.js`,
+    type: 'platform_adapter',
+    rationale: `Add ${name} platform adapter — v3+ P2 catalogue item missing from current Darwin surface.`,
+  }),
 };
 
-const PRIORITY_ORDER = ['providers', 'memory_backends', 'tools', 'skills'];
+const PRIORITY_ORDER = ['providers', 'memory_backends', 'tools', 'skills', 'platforms'];
 
 function newProposalId(category, name) {
   // Short, human-readable, deterministic-shape id (PR-S1; PR-S2 may switch to uuid v4).

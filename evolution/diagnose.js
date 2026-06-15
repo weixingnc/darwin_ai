@@ -58,6 +58,11 @@ const SKILL_CATALOGUE = [
   'test-generator',
 ].map((s) => s.toLowerCase());
 const MEMORY_CATALOGUE = ['filesystem', 'sqlite', 'vector'].map((s) => s.toLowerCase());
+// P3+ cycle 8 prep (2026-06-15): platform adapters = ingress/egress for
+// external messaging platforms. P2 priority per V3_ROADMAP. V2 reserved
+// 'adapter-feishu' config key (core/config-resolver.js) but no adapter
+// was implemented; this catalogue entry closes the loop.
+const PLATFORM_CATALOGUE = ['feishu'].map((s) => s.toLowerCase());
 
 // Scan roots. Absent dirs are reported as fully-missing, not throw.
 // P1-B2 (2026-06-15): memory_backends now scans BOTH `memory/` (top-level,
@@ -70,6 +75,7 @@ const SCAN_ROOTS = {
   skills: path.join(REPO_ROOT, 'skill', 'examples'),
   memory_backends: path.join(REPO_ROOT, 'memory', 'backends'),
   memory_backends_root: path.join(REPO_ROOT, 'memory'),
+  platforms: path.join(REPO_ROOT, 'platform'),
 };
 
 /**
@@ -143,6 +149,7 @@ export async function diagnose(opts = {}) {
         skills: path.join(root, 'skill', 'examples'),
         memory_backends: path.join(root, 'memory', 'backends'),
         memory_backends_root: path.join(root, 'memory'),
+        platforms: path.join(root, 'platform'),
       }
     : SCAN_ROOTS;
 
@@ -155,6 +162,7 @@ export async function diagnose(opts = {}) {
     scanRoots.memory_backends_root,
     scanRoots.memory_backends,
   );
+  const platforms = listJsStems(scanRoots.platforms);
 
   const report = {
     current: {
@@ -162,11 +170,13 @@ export async function diagnose(opts = {}) {
       tools,
       skills,
       memory_backends: memoryBackends,
+      platforms,
     },
     missing_providers: diff(PROVIDER_CATALOGUE, providers),
     missing_tools: diff(TOOL_CATALOGUE, tools),
     missing_skills: diff(SKILL_CATALOGUE, skills),
     missing_memory_backends: diff(MEMORY_CATALOGUE, memoryBackends),
+    missing_platforms: diff(PLATFORM_CATALOGUE, platforms),
     scanned_at: new Date().toISOString(),
   };
 
