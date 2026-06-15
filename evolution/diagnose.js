@@ -38,7 +38,9 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 // Canonical catalogues. PR-S1 picks a small, finite set; P1 will extend.
 // "stem" matches a file *stem* (provider/foo.js → stem 'foo'). We compare
 // case-insensitively to be lenient about filename casing.
-const PROVIDER_CATALOGUE = ['anthropic', 'openai', 'deepseek', 'qwen'].map((s) => s.toLowerCase());
+const PROVIDER_CATALOGUE = ['anthropic', 'openai', 'deepseek', 'qwen', 'gemini', 'claude-3.5'].map(
+  (s) => s.toLowerCase(),
+);
 const TOOL_CATALOGUE = [
   'read-file',
   'write-file',
