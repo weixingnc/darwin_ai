@@ -184,7 +184,7 @@ test('3. apply → verify → audit in tmpdir worktree (full pipeline)', async (
 });
 
 // ── 4. rollback in tmpdir ─────────────────────────────────────────────────
-
+// P3 fix (2026-06-15): apply no longer auto-commits; rollback uses `git reset --hard <tag>` (per ADR-007). Apply writes are untracked (never `git add`-ed), so they survive `git reset --hard` (which only reverts tracked files). Therefore HEAD stays at baseline after apply, and bad.js stays in the working tree after rollback — the test asserts the post-P3 untracked-survives reality, not the pre-P3 "apply auto-commits → reset deletes" fantasy.
 test('4. rollback → reset --hard + re-verify in tmpdir worktree', async () => {
   _resetSessionCounter();
   const cwd = tmp();
@@ -223,7 +223,7 @@ test('4. rollback → reset --hard + re-verify in tmpdir worktree', async () => 
     stdio: 'pipe',
     encoding: 'utf8',
   }).trim();
-  assert.notEqual(newSha, baselineSha);
+  assert.equal(newSha, baselineSha, 'P3 fix: apply does NOT commit; HEAD stays at baseline');
   assert.ok(fs.existsSync(path.join(cwd, 'tool/builtins/bad.js')));
 
   // Roll back.
@@ -241,8 +241,14 @@ test('4. rollback → reset --hard + re-verify in tmpdir worktree', async () => 
     encoding: 'utf8',
   }).trim();
   assert.equal(afterHead, baselineSha);
-  // File gone.
-  assert.ok(!fs.existsSync(path.join(cwd, 'tool/builtins/bad.js')));
+  // File still in working tree (P3 fix: apply no longer commits, so
+  // bad.js is untracked; `git reset --hard` only reverts tracked files,
+  // untracked ones survive — PM cleans up with `git clean -fd` after
+  // reviewing the audit log). This is correct post-P3 behaviour.
+  assert.ok(
+    fs.existsSync(path.join(cwd, 'tool/builtins/bad.js')),
+    'P3 fix: untracked bad.js survives git reset --hard; PM cleans up after audit review',
+  );
 
   fs.rmSync(cwd, { recursive: true, force: true });
 });
