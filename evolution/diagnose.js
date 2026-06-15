@@ -39,9 +39,16 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 // "stem" matches a file *stem* (provider/foo.js → stem 'foo'). We compare
 // case-insensitively to be lenient about filename casing.
 const PROVIDER_CATALOGUE = ['anthropic', 'openai', 'deepseek', 'qwen'].map((s) => s.toLowerCase());
-const TOOL_CATALOGUE = ['read-file', 'write-file', 'bash', 'glob', 'grep'].map((s) =>
-  s.toLowerCase(),
-);
+const TOOL_CATALOGUE = [
+  'read-file',
+  'write-file',
+  'bash',
+  'glob',
+  'grep',
+  'head',
+  'tail',
+  'wc',
+].map((s) => s.toLowerCase());
 const SKILL_CATALOGUE = ['hello-world', 'summarizer', 'translator'].map((s) => s.toLowerCase());
 const MEMORY_CATALOGUE = ['filesystem', 'sqlite', 'vector'].map((s) => s.toLowerCase());
 
