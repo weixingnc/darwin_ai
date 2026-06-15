@@ -79,10 +79,19 @@ function f6SelfCheck(cwd, tagSha) {
 }
 
 /**
- * Run `git reset --hard <tag_sha>`. Uses execFileSync (no shell) per F-6 SOP.
+ * Run `git reset --hard <tag_sha>`, then `git clean -fd` to remove
+ * untracked files (P4 fix, 2026-06-15). Reset alone only reverts tracked
+ * changes; untracked writes (apply does NOT commit) survive the reset.
+ * `git clean -fd` removes untracked files + directories, matching the
+ * "rollback fully reverts the apply" intent. Uses execFileSync (no shell)
+ * per F-6 SOP.
  */
 function runGitReset(tagSha, cwd) {
   execFileSync('git', ['reset', '--hard', tagSha], { cwd, stdio: 'pipe' });
+  // P4 fix: also remove untracked files so the working tree matches the
+  // pre-apply tag exactly. -f = force, -d = directories. Ignored paths
+  // (.gitignore'd) are skipped automatically by git clean.
+  execFileSync('git', ['clean', '-fd'], { cwd, stdio: 'pipe' });
 }
 
 /**

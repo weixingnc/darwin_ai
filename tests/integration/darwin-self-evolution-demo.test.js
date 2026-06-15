@@ -294,14 +294,13 @@ test('e2e 5/5: darwin self-evolution rollback restores pre-apply state', () => {
   // + `tag_exists` above, asserted via CLI in the rollback test).
   assert.equal(typeof result.new_verify_pass, 'boolean');
 
-  // echo.js still in working tree (P3 fix: apply no longer commits, so
-  // echo.js is untracked; `git reset --hard` only reverts tracked files,
-  // untracked ones survive — PM cleans up with `git clean -fd` after
-  // reviewing the audit log). This is correct post-P3 behaviour.
+  // echo.js removed from working tree (P4 fix: rollback now also runs
+  // `git clean -fd` after `git reset --hard`, so untracked files are
+  // removed too — applying apply+rollback leaves a clean working tree).
   const echoPath = path.join(tmpdir, 'tool', 'builtins', 'echo.js');
   assert.equal(
     fs.existsSync(echoPath),
-    true,
-    'P3 fix: untracked echo.js survives git reset --hard; PM cleans up after audit review',
+    false,
+    'echo.js should be gone after rollback (reset --hard + git clean -fd)',
   );
 });

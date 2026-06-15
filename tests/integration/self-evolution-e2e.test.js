@@ -242,13 +242,12 @@ test('4. rollback → reset --hard + re-verify in tmpdir worktree', async () => 
     encoding: 'utf8',
   }).trim();
   assert.equal(afterHead, baselineSha);
-  // File still in working tree (P3 fix: apply no longer commits, so
-  // bad.js is untracked; `git reset --hard` only reverts tracked files,
-  // untracked ones survive — PM cleans up with `git clean -fd` after
-  // reviewing the audit log). This is correct post-P3 behaviour.
+  // File removed from working tree (P4 fix: rollback now also runs
+  // `git clean -fd` after `git reset --hard`, so untracked files are
+  // removed too — apply+rollback leaves a clean working tree).
   assert.ok(
-    fs.existsSync(path.join(cwd, 'tool/builtins/bad.js')),
-    'P3 fix: untracked bad.js survives git reset --hard; PM cleans up after audit review',
+    !fs.existsSync(path.join(cwd, 'tool/builtins/bad.js')),
+    'P4 fix: git clean -fd removes untracked bad.js after reset --hard',
   );
 
   fs.rmSync(cwd, { recursive: true, force: true });
