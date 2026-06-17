@@ -18,7 +18,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { diagnose, _internal } from '../../evolution/diagnose.js';
 
-const { listJsStems, diff, SCAN_ROOTS } = _internal;
+const { listJsStems, diff, SCAN_ROOTS, PROVIDER_CATALOGUE } = _internal;
+const TOTAL_PROVIDERS = PROVIDER_CATALOGUE.length; // 6 (anthropic/openai/deepseek/qwen/gemini/claude-3.5)
 
 function makeRepo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'diag-deep-'));
@@ -52,7 +53,7 @@ test('diagnose: tmpdir mock — present provider is in current, rest missing', a
   const root = makeRepo();
   const r = await diagnose({ repoRoot: root });
   assert.deepEqual(r.current.providers, ['anthropic']);
-  assert.equal(r.missing_providers.length, 3); // openai/deepseek/qwen
+  assert.equal(r.missing_providers.length, TOTAL_PROVIDERS - 1); // catalogue - present
   assert.ok(r.missing_tools.includes('read-file'));
   assert.ok(r.missing_skills.includes('hello-world'));
   assert.ok(r.missing_memory_backends.includes('filesystem'));
@@ -63,17 +64,17 @@ test('diagnose: tmpdir mock — file stem casing is lowercased', async () => {
   fs.writeFileSync(path.join(root, 'provider', 'OpenAI.js'), '// stub');
   const r = await diagnose({ repoRoot: root });
   assert.ok(r.current.providers.includes('openai'), 'OpenAI.js → stem openai');
-  // makeRepo wrote anthropic.js; we add OpenAI.js; missing = openai/deepseek/qwen → 3
+  // makeRepo wrote anthropic.js; we add OpenAI.js; missing = catalogue - 2
   assert.equal(r.current.providers.length, 2);
-  assert.equal(r.missing_providers.length, 2);
-  assert.deepEqual(r.missing_providers.sort(), ['deepseek', 'qwen']);
+  assert.equal(r.missing_providers.length, TOTAL_PROVIDERS - 2);
+  assert.deepEqual(r.missing_providers.sort(), ['claude-3.5', 'deepseek', 'gemini', 'qwen']);
 });
 
 test('diagnose: empty catalogue dir → all entries missing', async () => {
   const root = makeRepo();
   fs.unlinkSync(path.join(root, 'provider', 'anthropic.js'));
   const r = await diagnose({ repoRoot: root });
-  assert.equal(r.missing_providers.length, 4);
+  assert.equal(r.missing_providers.length, TOTAL_PROVIDERS);
   assert.equal(r.current.providers.length, 0);
 });
 
