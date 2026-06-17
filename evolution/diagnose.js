@@ -65,6 +65,14 @@ const MEMORY_CATALOGUE = ['filesystem', 'sqlite', 'vector'].map((s) => s.toLower
 // 'adapter-feishu' config key (core/config-resolver.js) but no adapter
 // was implemented; this catalogue entry closes the loop.
 const PLATFORM_CATALOGUE = ['feishu'].map((s) => s.toLowerCase());
+// P2b (2026-06-17): plugins catalogue = plugin names Darwin expects to have
+// available. Convention: plugin/<subdir>/<file>.js exports default with
+// {name, version, capabilities, init, ...} per IPlugin. Examples live in
+// plugin/__example__/ — they count as available (stems readable from
+// filesystem) so Darwin can introspect them via diagnose without
+// importing. Real plugin catalogue (production plugins) lives in
+// `plugin/` root or `plugin/<name>/index.js` style (future).
+const PLUGIN_CATALOGUE = ['logger'].map((s) => s.toLowerCase());
 
 // Scan roots. Absent dirs are reported as fully-missing, not throw.
 // P1-B2 (2026-06-15): memory_backends now scans BOTH `memory/` (top-level,
@@ -78,6 +86,7 @@ const SCAN_ROOTS = {
   memory_backends: path.join(REPO_ROOT, 'memory', 'backends'),
   memory_backends_root: path.join(REPO_ROOT, 'memory'),
   platforms: path.join(REPO_ROOT, 'platform'),
+  plugins: path.join(REPO_ROOT, 'plugin'),
 };
 
 /**
@@ -129,6 +138,53 @@ function listMemoryBackendStems(rootDir, subDir) {
   return Array.from(out).sort();
 }
 
+/** List plugin stems from `plugin/`. Skips core contracts
+ *  (registry/loader/interface) and underscored dirs (convention: __example__,
+ *  __test__, __fixtures__). Plugin layout: either
+ *  `plugin/<name>.js` (root, single-file plugin) or
+ *  `plugin/<name>/<file>.js` (sub-dir plugin; first .js file's stem is the
+ *  plugin name). Examples in `__example__/` are scanned as available
+ *  plugins for Darwin introspection. Deduplicates. */
+function listPluginStems(rootDir) {
+  const out = new Set();
+  // Root: `plugin/<name>.js` → stem = `<name>` (skip core 3)
+  for (const stem of listJsStems(rootDir)) {
+    if (['registry', 'loader', 'interface'].includes(stem)) {
+      continue;
+    }
+    out.add(stem);
+  }
+  // Sub-dir: `plugin/<dir>/<file>.js` → stem = `<file>` (skip __* dirs)
+  let dirs = [];
+  try {
+    dirs = fs.readdirSync(rootDir, { withFileTypes: true });
+  } catch {
+    return Array.from(out).sort();
+  }
+  for (const d of dirs) {
+    if (!d.isDirectory() || d.name.startsWith('.')) {
+      continue;
+    }
+    if (d.name.startsWith('_')) {
+      // __example__, __test__, __fixtures__ — convention: skip but still
+      // scan their contents as available (so examples count as plugins).
+    }
+    let sub;
+    try {
+      sub = fs.readdirSync(path.join(rootDir, d.name), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const f of sub) {
+      if (!f.isFile() || !f.name.endsWith('.js') || f.name.startsWith('.')) {
+        continue;
+      }
+      out.add(f.name.slice(0, -3).toLowerCase());
+    }
+  }
+  return Array.from(out).sort();
+}
+
 /**
  * Run the full scan and return a structured report.
  * @param {object} [opts]
@@ -152,6 +208,7 @@ export async function diagnose(opts = {}) {
         memory_backends: path.join(root, 'memory', 'backends'),
         memory_backends_root: path.join(root, 'memory'),
         platforms: path.join(root, 'platform'),
+        plugins: path.join(root, 'plugin'),
       }
     : SCAN_ROOTS;
 
@@ -165,6 +222,7 @@ export async function diagnose(opts = {}) {
     scanRoots.memory_backends,
   );
   const platforms = listJsStems(scanRoots.platforms);
+  const plugins = listPluginStems(scanRoots.plugins);
 
   const report = {
     current: {
@@ -173,12 +231,14 @@ export async function diagnose(opts = {}) {
       skills,
       memory_backends: memoryBackends,
       platforms,
+      plugins,
     },
     missing_providers: diff(PROVIDER_CATALOGUE, providers),
     missing_tools: diff(TOOL_CATALOGUE, tools),
     missing_skills: diff(SKILL_CATALOGUE, skills),
     missing_memory_backends: diff(MEMORY_CATALOGUE, memoryBackends),
     missing_platforms: diff(PLATFORM_CATALOGUE, platforms),
+    missing_plugins: diff(PLUGIN_CATALOGUE, plugins),
     scanned_at: new Date().toISOString(),
   };
 
@@ -191,8 +251,10 @@ export async function diagnose(opts = {}) {
 export const _internal = {
   listJsStems,
   listMemoryBackendStems,
+  listPluginStems,
   diff,
   SCAN_ROOTS,
   REPO_ROOT,
   PROVIDER_CATALOGUE,
+  PLUGIN_CATALOGUE,
 };

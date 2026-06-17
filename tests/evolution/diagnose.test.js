@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { diagnose, _internal } from '../../evolution/diagnose.js';
 
-const { listJsStems, diff, SCAN_ROOTS, PROVIDER_CATALOGUE } = _internal;
+const { listJsStems, diff, SCAN_ROOTS, PROVIDER_CATALOGUE, REPO_ROOT } = _internal;
 const TOTAL_PROVIDERS = PROVIDER_CATALOGUE.length; // 6 (anthropic/openai/deepseek/qwen/gemini/claude-3.5)
 
 function makeRepo() {
@@ -103,4 +103,34 @@ test('SCAN_ROOTS: points to canonical Darwin layout', () => {
   assert.match(SCAN_ROOTS.tools, /\/tool\/builtins$/);
   assert.match(SCAN_ROOTS.skills, /\/skill\/examples$/);
   assert.match(SCAN_ROOTS.memory_backends, /\/memory\/backends$/);
+  assert.match(SCAN_ROOTS.plugins, /\/plugin$/);
+});
+
+test('listPluginStems: 扫 plugin/ 根目录 + __example__/logger.js → ["logger"] (P2b)', () => {
+  const { listPluginStems, PLUGIN_CATALOGUE } = _internal;
+  // 拿 v2 真 plugin/ 目录
+  const v2Plugin = path.join(REPO_ROOT, 'plugin');
+  const stems = listPluginStems(v2Plugin);
+  // 核心契约 (registry/loader/interface) 不进 list
+  assert.ok(!stems.includes('registry'), 'core 1/3 registry should be excluded');
+  assert.ok(!stems.includes('loader'), 'core 2/3 loader should be excluded');
+  assert.ok(!stems.includes('interface'), 'core 3/3 interface should be excluded');
+  // __example__/logger.js 的 stem 'logger' 应该在
+  assert.ok(stems.includes('logger'), '__example__/logger.js stem should be in list');
+  // catalogue ['logger'] 跟 listPluginStems 闭合
+  assert.equal(diff(PLUGIN_CATALOGUE, stems).length, 0, 'PLUGIN_CATALOGUE ⊆ listPluginStems');
+});
+
+test('diagnose: missing_plugins: [] in v2 real repo (P2b closure)', async () => {
+  // 拿 v2 真仓库 diagnose
+  const r = await diagnose({ repoRoot: REPO_ROOT });
+  assert.ok(Array.isArray(r.current.plugins), 'current.plugins should be an array');
+  assert.ok(Array.isArray(r.missing_plugins), 'missing_plugins should be an array');
+  // v2 当前应该闭合 (logger 是 catalogue 唯一项，且 __example__ 提供)
+  assert.deepEqual(r.missing_plugins, [], 'missing_plugins should be empty in v2 real repo');
+  // current.plugins 含 logger
+  assert.ok(
+    r.current.plugins.includes('logger'),
+    'current.plugins should include logger (from __example__/)',
+  );
 });
