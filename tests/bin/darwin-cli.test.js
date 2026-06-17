@@ -92,4 +92,23 @@ describe('darwin CLI (PR 19a)', () => {
     // (no real keys ever appear in show output)
     assert.ok(!/sk-[a-zA-Z0-9]{20,}/.test(r.stdout), `must not leak real keys`);
   });
+
+  test('darwin plugin add <example> prints plugin name, not [object Object] (P2a bug fix)', () => {
+    const r = run(['plugin', 'add', './plugin/__example__/logger.js']);
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.ok(
+      r.stdout.includes('→ logger'),
+      `stdout should include '→ logger' (plugin name), was: ${r.stdout}`,
+    );
+    assert.ok(
+      !r.stdout.includes('[object Object]'),
+      `stdout must not include '[object Object]' (regression: loader returns ErrorHandler shape, not bare string)`,
+    );
+  });
+
+  test('darwin plugin list exits 0 (no plugins loaded in fresh process)', () => {
+    const r = run(['plugin', 'list']);
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    // Snapshot of empty registry is fine; CLI runs in fresh process per invocation
+  });
 });

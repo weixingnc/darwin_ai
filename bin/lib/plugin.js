@@ -27,9 +27,9 @@ export async function pluginAdd(path) {
   const registry = new PluginRegistry({ eventBus: bus });
   const loader = createPluginLoader({ eventBus: bus, registry });
 
-  // Stage 1: load (parse + import)
-  const loadedName = await loader.load(path);
-  const name = loadedName || _nameFromPath(path);
+  // Stage 1: load (parse + import) — loader.load() returns { ok, name? } (ErrorHandler shape)
+  const loadResult = await loader.load(path);
+  const name = loadResult?.name || _nameFromPath(path);
   console.log(`✓ Loaded: ${path} → ${name}`);
 
   // Stage 2: init (call plugin.init({ eventBus }))
