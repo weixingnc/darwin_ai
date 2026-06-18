@@ -88,7 +88,11 @@ const DEFAULTS = Object.freeze({
     'test-generator',
   ],
   platforms: ['feishu'],
-  plugins: ['logger', 'audit'],
+  // W4-1 (2026-06-18): added 'metrics' — third production plugin,
+  // Darwin's observability layer (per-topic counters + avg duration).
+  // Plugin order: example (logger) → audit (P2c-2) → metrics (W4-1).
+  // See plugin/metrics.js for the manifest.
+  plugins: ['logger', 'audit', 'metrics'],
 });
 
 /**
@@ -103,7 +107,13 @@ const DEFAULTS = Object.freeze({
  */
 const GROWTH_CANDIDATES = Object.freeze({
   plugins: [
-    'metrics', // PM-curated next plugin: collect plugin lifecycle metrics
+    // W4-1 (2026-06-18): 'metrics' moved to DEFAULTS.plugins — it shipped
+    // as a hand-written production plugin (plugin/metrics.js), so the
+    // baseline catalogue now includes it. Growth candidates should
+    // surface things that aren't yet installed. Next growth target:
+    // 'rate-limiter' — outgoing LLM call rate limit / backpressure
+    // (Darwin doesn't have one yet, see Darwin v2 §4.3 limitations).
+    'rate-limiter',
   ],
 });
 

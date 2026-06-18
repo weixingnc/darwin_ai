@@ -41,9 +41,12 @@ test('P2g: loadCatalogue() returns DEFAULTS when no overlay exists', () => {
     [...cat.providers].sort(),
     ['anthropic', 'claude-3.5', 'deepseek', 'gemini', 'openai', 'qwen'],
   );
-  assert.equal(cat.plugins.length, 2);
+  // W4-1 (2026-06-18): baseline plugin catalogue now 3 (logger + audit
+  // + metrics), not 2. See evolution/catalogue.js DEFAULTS.plugins.
+  assert.equal(cat.plugins.length, 3);
   assert.ok(cat.plugins.includes('logger'));
   assert.ok(cat.plugins.includes('audit'));
+  assert.ok(cat.plugins.includes('metrics'));
 });
 
 test('P2g: loadCatalogue() merges overlay file (additive)', () => {
@@ -103,17 +106,17 @@ test('P2g: addToCatalogue() is idempotent', () => {
 });
 
 test('P2g: proposeGrowth() returns first candidate not yet in catalogue', () => {
-  // Default catalogue has logger + audit but NOT 'metrics'. Growth candidate
-  // is 'metrics' → proposeGrowth returns 'metrics'.
+  // W4-1 (2026-06-18): 'metrics' moved to DEFAULTS (baseline).
+  // GROWTH_CANDIDATES is now ['rate-limiter'] — the next growth target.
   const next = proposeGrowth('plugins');
-  assert.equal(next, 'metrics');
+  assert.equal(next, 'rate-limiter');
 });
 
 test('P2g: proposeGrowth() returns null when all candidates installed', () => {
   // Use a private module call via the loaded _internal so we can stub.
   // We can't easily stub, so simulate: install all known candidates.
   const file = overlayFile('-all');
-  writeFileSync(file, JSON.stringify({ plugins: ['metrics'] }) + '\n');
+  writeFileSync(file, JSON.stringify({ plugins: ['rate-limiter'] }) + '\n');
   // Monkey-patch the default file by overriding the import is not feasible
   // without ESM mocking. Instead, use loadCatalogue + GROWTH_CANDIDATES
   // directly via _internal to assert.
