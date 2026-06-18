@@ -26,6 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evolutionBus } from './_bus.js';
 import { EVENTS } from '../core/events.js';
+import { loadCatalogue as loadCatalogueFromModule } from './catalogue.js';
 
 // LLM gate (ADR-009): diagnose never calls LLM. Explicit constant so a
 // reviewer can grep the file and verify the gate.
@@ -38,33 +39,21 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 // Canonical catalogues. PR-S1 picks a small, finite set; P1 will extend.
 // "stem" matches a file *stem* (provider/foo.js → stem 'foo'). We compare
 // case-insensitively to be lenient about filename casing.
-const PROVIDER_CATALOGUE = ['anthropic', 'openai', 'deepseek', 'qwen', 'gemini', 'claude-3.5'].map(
-  (s) => s.toLowerCase(),
-);
-const TOOL_CATALOGUE = [
-  'read-file',
-  'write-file',
-  'bash',
-  'glob',
-  'grep',
-  'head',
-  'tail',
-  'wc',
-].map((s) => s.toLowerCase());
-const SKILL_CATALOGUE = [
-  'hello-world',
-  'summarizer',
-  'translator',
-  'code-review',
-  'commit-message',
-  'test-generator',
-].map((s) => s.toLowerCase());
-const MEMORY_CATALOGUE = ['filesystem', 'sqlite', 'vector'].map((s) => s.toLowerCase());
+// P2g (2026-06-18): catalogues now come from evolution/catalogue.js
+// (single source of truth, JSON-overlay-able). The legacy hardcoded
+// `xxx_CATALOGUE` consts are kept ONLY for back-compat with external
+// callers that read `_internal.PROVIDER_CATALOGUE` etc. — they're
+// populated from the catalogue module at module load time.
+const _CATALOGUE = loadCatalogueFromModule();
+const PROVIDER_CATALOGUE = _CATALOGUE.providers;
+const TOOL_CATALOGUE = _CATALOGUE.tools;
+const SKILL_CATALOGUE = _CATALOGUE.skills;
+const MEMORY_CATALOGUE = _CATALOGUE.memory_backends;
 // P3+ cycle 8 prep (2026-06-15): platform adapters = ingress/egress for
 // external messaging platforms. P2 priority per V3_ROADMAP. V2 reserved
 // 'adapter-feishu' config key (core/config-resolver.js) but no adapter
 // was implemented; this catalogue entry closes the loop.
-const PLATFORM_CATALOGUE = ['feishu'].map((s) => s.toLowerCase());
+const PLATFORM_CATALOGUE = _CATALOGUE.platforms;
 // P2b (2026-06-17): plugins catalogue = plugin names Darwin expects to have
 // available. Convention: plugin/<subdir>/<file>.js exports default with
 // {name, version, capabilities, init, ...} per IPlugin. Examples live in
@@ -79,7 +68,11 @@ const PLATFORM_CATALOGUE = ['feishu'].map((s) => s.toLowerCase());
 // growth 1→2 marks Darwin's first real "装新器官" — Darwin decides to install
 // a plugin, then verifies the install via re-diagnose. Subsequent cycles
 // can extend this list to grow the production plugin surface.
-const PLUGIN_CATALOGUE = ['logger', 'audit'].map((s) => s.toLowerCase());
+//
+// P2g (2026-06-18): PLUGIN_CATALOGUE is now sourced from catalogue.js,
+// where `addToCatalogue('plugins', name)` is the API for Darwin's
+// self-evolution to grow the catalogue (commit-time, audit-logged).
+const PLUGIN_CATALOGUE = _CATALOGUE.plugins;
 
 // Scan roots. Absent dirs are reported as fully-missing, not throw.
 // P1-B2 (2026-06-15): memory_backends now scans BOTH `memory/` (top-level,
