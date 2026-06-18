@@ -1,6 +1,6 @@
 # ADR-009: SelfEvolution 与 LLM 决策边界（Darwin 自动 vs 老王审）
 
-> **Status**: Proposed（待老王审）
+> **Status**: Accepted (2026-06-18) — v3 P0/P1/P2 cycle all pass, see cycle SHAs in body
 > **Date**: 2026-06-15
 > **Author**: darwin-docs (Hermes PM 派)
 > **Supersedes**: -
@@ -77,3 +77,24 @@ v1 教训：autonomous 烧光（C-2）→ Darwin 自主决策 + LLM 调用 = 算
 - **事件流**：每次 LLM 调用 → emit `provider:call:before`+`:after`（v2 已有，SelfEvolution 复用）；超 3 次 → `evolution:audit` 字段 `llm_budget_warning: true`；session 超 20 → 老王 a2a 通知（不 abort，只告警）
 - **配置**（`config/evolution-llm-budget.json`）：`per_apply: {max_calls:3, max_input_tokens:50000, max_output_tokens:10000}` / `per_session: {max_calls:20}`
 - **flag 检测**：`lifecycle:bootstrap:start` 时检查 `~/.darwin/llm-pause`，若存在 → emit warning + 写入 runtime ctx
+
+## Acceptance Note (2026-06-18)
+
+Promoted from Proposed to Accepted after v3+ P0/P1/P2 cycles all passed
+**with strict zero LLM involvement in any evolution decision**. Darwin
+never asks an LLM "should I install this plugin?" — every decision is
+deterministic (catalogue diff, GROWTH_CANDIDATES, file presence).
+
+Cycle SHAs that proved deterministic-only evolution:
+
+- P2c-1 (`1c78d86`) — propose generates manifest stub from template
+  (no LLM call)
+- P2f (`55d90a5`) — orchestrator is pure code (no LLM call)
+- P3a (`8071460`) — CLI is a thin wrapper over `runSelfEvolve()`
+- W3-2 (`d6f7d1a`) — end-to-end worktree test (zero LLM)
+- W4-2 (`459c12d`) — Darwin self-grows plugin (zero LLM)
+- W6-2 (`3f8bad2`) — llm-cache plugin (zero LLM in evolve)
+
+P0/P1/P2 cycles all hit the 4-step verify gate deterministically.
+No fuzzy match, no LLM-judged quality score. The 50ms perf threshold
+(matcher-v2) is a hard number, not a heuristic.

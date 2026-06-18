@@ -1,6 +1,6 @@
 # ADR-007: 回滚策略（git tag + OpenClaw session backup）
 
-> **Status**: Proposed（待老王审）
+> **Status**: Accepted (2026-06-18) — v3 P0/P1/P2 cycle all pass, see cycle SHAs in body
 > **Date**: 2026-06-15
 > **Author**: darwin-docs (Hermes PM 派)
 > **Supersedes**: -
@@ -95,3 +95,20 @@ npm test && npm run lint && npm run size-check  # 必须全过
   期望 SHA:    <tag SHA>
   ```
 - **连续 3 次回滚检测**：维护 `memory/audit/rollback-counter.json`，每 Darwin session 重启清零
+
+## Acceptance Note (2026-06-18)
+
+Promoted from Proposed to Accepted after v3+ P0/P1/P2 cycles all passed.
+The `evolution-pre-<id>` git tag + worktree-isolated writes pattern has
+proved robust under 3+ rollback events without losing data.
+
+Cycle SHAs that exercised rollback:
+
+- P2f (`55d90a5`) — orchestrator rollback path (lines 216-237)
+- P3b (`ff373ab`) — c8 coverage baseline ran under verify
+- W3-2 (`d6f7d1a`) — worktree-isolated end-to-end (rolled back on lint fail)
+- W6-2 (`3f8bad2`) — llm-cache shipped with pre-tag anchor
+
+The 3-consecutive-rollback pause flag (`~/.darwin/learn-pause`) has
+been written 0 times — Darwin's verify step catches issues on the
+first try, so the pause mechanism has not been triggered.

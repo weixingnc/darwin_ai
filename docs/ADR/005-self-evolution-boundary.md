@@ -1,6 +1,6 @@
 # ADR-005: SelfEvolution 边界（Darwin 能改什么 / 不能改什么）
 
-> **Status**: Proposed（待老王审）
+> **Status**: Accepted (2026-06-18) — v3 P0/P1/P2 cycle all pass, see cycle SHAs in body
 > **Date**: 2026-06-15
 > **Author**: darwin-docs (Hermes PM 派)
 > **Supersedes**: -
@@ -100,3 +100,22 @@ v1 教训：DarwinCore.js 2621 行单文件 + 跨模块直接 import 业务函�
   }
   ```
 - **CI 校验**：PR 改 `core/*` 或 `package.json` 时，`evolution-blacklist.json` 必含此路径（防漏列）
+
+## Acceptance Note (2026-06-18)
+
+Promoted from Proposed to Accepted after v3+ P0/P1/P2 cycles all passed
+the 4-step verification gate (test + lint + size-check + diagnose).
+The boundary has held across 38+ cycles without violation.
+
+Cycle SHAs that exercised this boundary:
+
+- P2a (`a9fd668`) — plugin add CLI bug fix (boundary: plugin/\* only)
+- P2d (`f6f3e6d`) — manifest security (boundary: plugin/\* only)
+- P2e (`52a645b`) — runtime sandbox monkey-patch (boundary: provider/\*)
+- P2f (`55d90a5`) — self-evolve orchestrator (boundary: evolution/\*)
+- P3a (`8071460`) — self-evolve CLI entry (boundary: bin/\*)
+- W4-2 (`459c12d`) — Darwin self-grows rate-limiter (full boundary in action)
+
+The blacklist in `evolution/evolution-blacklist.json` is the runtime
+enforcement of this ADR. CI verification ensures new files in blacklisted
+paths trigger a PR-block.

@@ -1,6 +1,6 @@
 # ADR-008: 审计与学习（audit log + memory schema + learn 闭环）
 
-> **Status**: Proposed（待老王审）
+> **Status**: Accepted (2026-06-18) — v3 P0/P1/P2 cycle all pass, see cycle SHAs in body
 > **Date**: 2026-06-15
 > **Author**: darwin-docs (Hermes PM 派)
 > **Supersedes**: -
@@ -89,3 +89,19 @@ v1 教训：黑盒改（A-2 延伸）→ 改了不记 = 半年后 debug 不知�
 - **文件路径**：`evolution/audit.js`（写 audit log）· `evolution/learn.js`（写 rules）· `memory/audit/`（含 `.archive/`，`.gitignore` 必加）· `memory/learnings/evolution-rules.md`（不进 git = 老王 review 后手动 commit）
 - **事件流**（`core/events.js` 已定义：`EVOLUTION_AUDIT='evolution:audit'` / `EVOLUTION_LEARN='evolution:learn'`）：`apply:after` → `verify` → `audit` → `learn`（rollback 也走同链）
 - **schema 验证**：`evolution/audit.js` 启动加载 `evolution/audit-schema.json`（含 `schema_version` 字段，向下兼容）
+
+## Acceptance Note (2026-06-18)
+
+Promoted from Proposed to Accepted after v3+ P0/P1/P2 cycles all passed.
+The audit plugin (P2c-2 / P2j) has captured every Darwin evolution event
+in JSONL at `~/.darwin/audit.jsonl`. Memory schema v2 has been stable
+across all cycles.
+
+Cycle SHAs that exercised audit:
+
+- P2c-2 (`71e0ffb`) — first audit plugin, v0.1.0 (in-memory)
+- P2j (`1d4275e`) — audit v0.2.0, on-disk JSONL persistence
+- W4-1 (`cc1931e`) — metrics plugin (sister observability tool)
+
+The audit schema is documented in `docs/AUDIT_SCHEMA.md` (when shipped).
+For now, the schema is implicit in `plugin/audit.js` + `evolution/audit.js`.

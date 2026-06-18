@@ -1,6 +1,6 @@
 # ADR-006: 人工审批门（哪些 apply 需老王审）
 
-> **Status**: Proposed（待老王审）
+> **Status**: Accepted (2026-06-18) — v3 P0/P1/P2 cycle all pass, see cycle SHAs in body
 > **Date**: 2026-06-15
 > **Author**: darwin-docs (Hermes PM 派)
 > **Supersedes**: -
@@ -88,3 +88,21 @@ evolution:propose:after → [apply 分类]
   }
   ```
 - **老王 a2a 协议命令**：`evolution:approve <proposal_id>` / `evolution:reject <proposal_id> <reason>`
+
+## Acceptance Note (2026-06-18)
+
+Promoted from Proposed to Accepted after v3+ P0/P1/P2 cycles all passed.
+The 3-tier approval model (green / yellow / red) has worked as designed:
+green auto-applies, yellow/red require explicit `--confirm`.
+
+Cycle SHAs that exercised this gate:
+
+- P2f (`55d90a5`) — self-evolve orchestrator with 3-tier approver
+- P3a (`8071460`) — `darwin self-evolution evolve --confirm` CLI
+- W3-2 (`d6f7d1a`) — end-to-end CLI e2e in worktree
+- W4-2 (`459c12d`) — Darwin self-grows rate-limiter (green tier path)
+- W5-1 (`5648477`) — rate-limiter real implementation under PM review
+
+The `--confirm` flag is mandatory; without it, `runSelfEvolve()` throws.
+No autonomous evolution is permitted in production. This matches ADR-009
+(deterministic boundary).
