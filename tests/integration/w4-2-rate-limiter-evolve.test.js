@@ -50,6 +50,22 @@ function makeWorktree() {
     cwd: root,
     stdio: 'pipe',
   });
+  // W6-2: copy any uncommitted plugin/ files from REPO_ROOT into
+  // the worktree. `git worktree add` only checks out the HEAD
+  // commit's tree, so newly added but uncommitted plugin files
+  // (e.g. plugin/llm-cache.js shipped in W6-2's working tree)
+  // would otherwise appear "missing" to diagnose. Copy the full
+  // plugin/ directory from REPO_ROOT to keep the worktree in sync
+  // with the working tree's plugin surface.
+  const srcPlugin = path.join(REPO_ROOT, 'plugin');
+  const dstPlugin = path.join(root, 'plugin');
+  for (const f of fs.readdirSync(srcPlugin)) {
+    const src = path.join(srcPlugin, f);
+    const dst = path.join(dstPlugin, f);
+    if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+      fs.copyFileSync(src, dst);
+    }
+  }
   return root;
 }
 
@@ -90,11 +106,10 @@ function injectMissingPlugin(worktree, newPlugins) {
     cwd: worktree,
     stdio: 'pipe',
   });
-  execFileSync(
-    'git',
-    ['commit', '-m', 'test: inject rate-limiter (w4-2)', '--no-verify'],
-    { cwd: worktree, stdio: 'pipe' },
-  );
+  execFileSync('git', ['commit', '-m', 'test: inject rate-limiter (w4-2)', '--no-verify'], {
+    cwd: worktree,
+    stdio: 'pipe',
+  });
 }
 
 /** Run the CLI as a child process and return {stdout, stderr, code}. */
@@ -128,40 +143,27 @@ describe('W4-2: Darwin grows its 4th plugin (rate-limiter) via CLI', () => {
     }
   });
 
-  test('rate-limiter is in GROWTH_CANDIDATES (PM-curated next growth target)', async () => {
-    // W4-1 (2026-06-18): 'metrics' moved to DEFAULTS (shipped). Growth
-    // candidates are now ['rate-limiter']. This test guards the
-    // candidate list from accidental edits that would break the
-    // "Darwin decides what to install next" contract (P2g §4).
-    const catalogueModule = await import('../../evolution/catalogue.js');
-    const candidates = catalogueModule._internal.GROWTH_CANDIDATES.plugins;
-    assert.ok(
-      Array.isArray(candidates),
-      'GROWTH_CANDIDATES.plugins is an array',
-    );
-    assert.ok(
-      candidates.includes('rate-limiter'),
-      'rate-limiter is the next growth candidate',
-    );
-  });
-
   test('W5-1: rate-limiter is shipped, Darwin no longer evolves it', () => {
     // W4-2 (before W5-1) proved the closed loop on 'rate-limiter' as a
-    // missing plugin. W5-1 (this cycle) shipped the real implementation
-    // of plugin/rate-limiter.js, so the catalogue is now closure for
+    // missing plugin. W5-1 shipped the real implementation of
+    // plugin/rate-limiter.js, so the catalogue is now closure for
     // rate-limiter — running evolve --confirm should return
     // evolved:false / reason:no_missing_plugins, NOT try to grow it
     // again. The injectMissingPlugin call below is a no-op because the
     // target is already present in the worktree's plugin/ directory.
     const target = 'rate-limiter';
-    injectMissingPlugin(worktree, ['logger', 'audit', 'metrics', target]);
+    // W6-2: catalogue now has 5 plugins. Inject all 5 so the
+    // worktree's plugin/ closure includes everything; Darwin
+    // should report no_missing_plugins without trying to grow
+    // any of them (especially not llm-cache which is fresh in
+    // main but the worktree's plugin/ also has it via checkout).
+    injectMissingPlugin(worktree, ['logger', 'audit', 'metrics', 'rate-limiter', 'llm-cache']);
 
     const result = runCli(worktree, ['self-evolution', 'evolve', '--confirm']);
     assert.equal(result.code, 0, `CLI exit 0; stderr: ${result.stderr.slice(0, 500)}`);
     const json = JSON.parse(result.stdout);
-    // The worktree (from HEAD = 5648477, which includes W5-1's
-    // plugin/rate-limiter.js) sees a closed catalogue. Darwin does
-    // not re-grow rate-limiter.
+    // The worktree (from HEAD that includes W5-1's plugin/rate-limiter.js)
+    // sees a closed catalogue. Darwin does not re-grow rate-limiter.
     assert.equal(json.evolved, false, `expected evolved:false, got ${JSON.stringify(json)}`);
     assert.equal(json.reason, 'no_missing_plugins');
     assert.deepEqual(json.initial_missing_plugins, []);

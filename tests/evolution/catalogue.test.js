@@ -18,12 +18,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import {
-  loadCatalogue,
-  addToCatalogue,
-  proposeGrowth,
-  audit,
-} from '../../evolution/catalogue.js';
+import { loadCatalogue, addToCatalogue, proposeGrowth, audit } from '../../evolution/catalogue.js';
 import { _internal } from '../../evolution/catalogue.js';
 
 const TMP = mkdtempSync(join(tmpdir(), 'p2g-'));
@@ -37,26 +32,36 @@ function logFile(suffix = '') {
 
 test('P2g: loadCatalogue() returns DEFAULTS when no overlay exists', () => {
   const cat = loadCatalogue({ file: overlayFile('-empty') });
-  assert.deepEqual(
-    [...cat.providers].sort(),
-    ['anthropic', 'claude-3.5', 'deepseek', 'gemini', 'openai', 'qwen'],
-  );
+  assert.deepEqual([...cat.providers].sort(), [
+    'anthropic',
+    'claude-3.5',
+    'deepseek',
+    'gemini',
+    'openai',
+    'qwen',
+  ]);
   // W4-1 (2026-06-18): baseline plugin catalogue now 3 (logger + audit
   // + metrics), not 2. See evolution/catalogue.js DEFAULTS.plugins.
-  assert.equal(cat.plugins.length, 3);
+  // W6-2: now 5 (logger + audit + metrics + rate-limiter + llm-cache).
+  assert.equal(cat.plugins.length, 5);
   assert.ok(cat.plugins.includes('logger'));
   assert.ok(cat.plugins.includes('audit'));
   assert.ok(cat.plugins.includes('metrics'));
+  assert.ok(cat.plugins.includes('rate-limiter'));
+  assert.ok(cat.plugins.includes('llm-cache'));
 });
 
 test('P2g: loadCatalogue() merges overlay file (additive)', () => {
   const file = overlayFile('-merge');
-  writeFileSync(file, JSON.stringify({ plugins: ['metrics', 'rate-limiter'] }) + '\n');
+  writeFileSync(file, JSON.stringify({ plugins: ['metrics', 'rate-limiter', 'llm-cache'] }) + '\n');
   const cat = loadCatalogue({ file });
-  assert.deepEqual(
-    [...cat.plugins].sort(),
-    ['audit', 'logger', 'metrics', 'rate-limiter'],
-  );
+  assert.deepEqual([...cat.plugins].sort(), [
+    'audit',
+    'llm-cache',
+    'logger',
+    'metrics',
+    'rate-limiter',
+  ]);
 });
 
 test('P2g: overlay cannot REMOVE defaults (additive-only)', () => {
@@ -106,10 +111,11 @@ test('P2g: addToCatalogue() is idempotent', () => {
 });
 
 test('P2g: proposeGrowth() returns first candidate not yet in catalogue', () => {
-  // W4-1 (2026-06-18): 'metrics' moved to DEFAULTS (baseline).
-  // GROWTH_CANDIDATES is now ['rate-limiter'] — the next growth target.
+  // W6-2 (2026-06-18): both 'rate-limiter' and 'llm-cache' moved to
+  // DEFAULTS.plugins after shipping. GROWTH_CANDIDATES is now empty —
+  // proposeGrowth() returns null. PM can add new candidates when ready.
   const next = proposeGrowth('plugins');
-  assert.equal(next, 'rate-limiter');
+  assert.equal(next, null);
 });
 
 test('P2g: proposeGrowth() returns null when all candidates installed', () => {

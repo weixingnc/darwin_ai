@@ -47,6 +47,20 @@ function makeWorktree() {
     cwd: root,
     stdio: 'pipe',
   });
+  // W6-2: copy uncommitted plugin/ files from REPO_ROOT into the
+  // worktree so the worktree's plugin/ matches the working tree.
+  // `git worktree add` only checks out HEAD's tree, so newly
+  // written but uncommitted plugin files (e.g. plugin/llm-cache.js
+  // shipped in W6-2) would otherwise appear "missing" to diagnose.
+  const srcPlugin = path.join(REPO_ROOT, 'plugin');
+  const dstPlugin = path.join(root, 'plugin');
+  for (const f of fs.readdirSync(srcPlugin)) {
+    const src = path.join(srcPlugin, f);
+    const dst = path.join(dstPlugin, f);
+    if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+      fs.copyFileSync(src, dst);
+    }
+  }
   return root;
 }
 
@@ -87,11 +101,10 @@ function injectMissingPlugin(worktree, newPlugins) {
     cwd: worktree,
     stdio: 'pipe',
   });
-  execFileSync(
-    'git',
-    ['commit', '-m', 'test: inject missing plugin (w3-2)', '--no-verify'],
-    { cwd: worktree, stdio: 'pipe' },
-  );
+  execFileSync('git', ['commit', '-m', 'test: inject missing plugin (w3-2)', '--no-verify'], {
+    cwd: worktree,
+    stdio: 'pipe',
+  });
 }
 
 /** Run the CLI as a child process and return {stdout, stderr, code}. */

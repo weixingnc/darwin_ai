@@ -60,25 +60,9 @@ const LOG_FILE = path.join(MODULE_REPO_ROOT, 'evolution', 'catalogue.log');
  * hardcoded catalogues into this module entirely).
  */
 const DEFAULTS = Object.freeze({
-  providers: [
-    'anthropic',
-    'openai',
-    'deepseek',
-    'qwen',
-    'gemini',
-    'claude-3.5',
-  ],
+  providers: ['anthropic', 'openai', 'deepseek', 'qwen', 'gemini', 'claude-3.5'],
   memory_backends: ['filesystem', 'sqlite', 'vector'],
-  tools: [
-    'read-file',
-    'write-file',
-    'bash',
-    'glob',
-    'grep',
-    'head',
-    'tail',
-    'wc',
-  ],
+  tools: ['read-file', 'write-file', 'bash', 'glob', 'grep', 'head', 'tail', 'wc'],
   skills: [
     'hello-world',
     'summarizer',
@@ -90,9 +74,12 @@ const DEFAULTS = Object.freeze({
   platforms: ['feishu'],
   // W4-1 (2026-06-18): added 'metrics' — third production plugin,
   // Darwin's observability layer (per-topic counters + avg duration).
-  // Plugin order: example (logger) → audit (P2c-2) → metrics (W4-1).
-  // See plugin/metrics.js for the manifest.
-  plugins: ['logger', 'audit', 'metrics'],
+  // W6-2 (2026-06-18): added 'llm-cache' — fifth production plugin,
+  // LRU+TTL cache for LLM responses (deterministic key from
+  // messages+model, see plugin/llm-cache.js + plugin/llm-cache-key.js).
+  // Plugin order: example (logger) → audit (P2c-2) → metrics (W4-1)
+  //              → rate-limiter (W5-1) → llm-cache (W6-2).
+  plugins: ['logger', 'audit', 'metrics', 'rate-limiter', 'llm-cache'],
 });
 
 /**
@@ -110,10 +97,11 @@ const GROWTH_CANDIDATES = Object.freeze({
     // W4-1 (2026-06-18): 'metrics' moved to DEFAULTS.plugins — it shipped
     // as a hand-written production plugin (plugin/metrics.js), so the
     // baseline catalogue now includes it. Growth candidates should
-    // surface things that aren't yet installed. Next growth target:
-    // 'rate-limiter' — outgoing LLM call rate limit / backpressure
-    // (Darwin doesn't have one yet, see Darwin v2 §4.3 limitations).
-    'rate-limiter',
+    // surface things that aren't yet installed.
+    // W6-2 (2026-06-18): 'rate-limiter' and 'llm-cache' both moved to
+    // DEFAULTS.plugins after shipping. The list is currently empty
+    // (all candidates are now installed). PM can add new candidates
+    // (e.g. 'tracer' for distributed trace spans) when ready.
   ],
 });
 
@@ -222,13 +210,16 @@ export function addToCatalogue(category, name, opts = {}) {
   list.push(nm);
   overlay[cat] = list;
   fs.writeFileSync(file, JSON.stringify(overlay, null, 2) + '\n', 'utf8');
-  appendAudit({
-    op: 'add',
-    category: cat,
-    name: nm,
-    reason,
-    file,
-  }, logFile);
+  appendAudit(
+    {
+      op: 'add',
+      category: cat,
+      name: nm,
+      reason,
+      file,
+    },
+    logFile,
+  );
   return true;
 }
 
@@ -275,7 +266,9 @@ export function audit(opts = {}) {
   }
   const out = [];
   for (const line of raw.split('\n')) {
-    if (!line.trim()) {continue;}
+    if (!line.trim()) {
+      continue;
+    }
     try {
       out.push(JSON.parse(line));
     } catch {
