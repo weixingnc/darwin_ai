@@ -40,19 +40,28 @@ describe('VectorBackend — shape + IMemory-like contract', () => {
     assert.equal(m.validate(), true);
   });
 
-  test('3. embed() returns deterministic fixed-dim vector', () => {
+  test('3. embed() returns deterministic fixed-dim vector (async, tagged ok)', async () => {
     const m = VectorBackend();
-    const v1 = m.embed('hello');
-    const v2 = m.embed('hello');
-    assert.equal(v1.length, VECTOR_DIM);
-    assert.deepEqual(v1, v2);
+    await m.init(ctx());
+    const r1 = await m.embed('hello');
+    const r2 = await m.embed('hello');
+    assert.equal(r1.ok, true);
+    assert.equal(r1.vector.length, VECTOR_DIM);
+    assert.deepEqual(r1.vector, r2.vector);
   });
 
-  test('4. embed("") / embed(null) safe', () => {
+  test('4. embed("") / embed(null) safe (async)', async () => {
     const m = VectorBackend();
-    assert.equal(m.embed('').length, VECTOR_DIM);
-    assert.equal(m.embed(null).length, VECTOR_DIM);
-    assert.equal(m.embed(undefined).length, VECTOR_DIM);
+    await m.init(ctx());
+    const a = await m.embed('');
+    const b = await m.embed(null);
+    const c = await m.embed(undefined);
+    assert.equal(a.ok, true);
+    assert.equal(a.vector.length, VECTOR_DIM);
+    assert.equal(b.ok, true);
+    assert.equal(b.vector.length, VECTOR_DIM);
+    assert.equal(c.ok, true);
+    assert.equal(c.vector.length, VECTOR_DIM);
   });
 
   test('5. cosineSim: identical vectors → 1, orthogonal-ish → < 1', () => {
@@ -261,5 +270,76 @@ describe('VectorBackend — init error isolation', () => {
     // Trigger an internal error via store with wrong dim:
     await m2.store('x', [1, 2]);
     assert.ok(captured === null || typeof captured === 'object');
+  });
+});
+
+describe('VectorBackend — embedder DI seam (V4 cycle 1)', () => {
+  test('26. init with custom embedder: embed() + text-path search() use it', async () => {
+    const calls = [];
+    // Custom embedder: a 2-dim mapper that captures calls. We
+    // override the VECTOR_DIM check by going through search() with
+    // a raw vector path too — but the embedder must satisfy the
+    // 8-dim contract for embed() to be ok. So we use the same
+    // dim and just augment (e.g. shift every coord by 1).
+    const customEmbed = async (text) => {
+      calls.push(text);
+      const base = fakeEmbed(text);
+      return base.map((x) => x + 1);
+    };
+    const m = VectorBackend();
+    await m.init({ eventBus: { emit: () => {} }, embedder: customEmbed });
+    // embed() now goes through the injected function
+    const r = await m.embed('hello di');
+    assert.equal(r.ok, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0], 'hello di');
+    assert.equal(r.vector.length, VECTOR_DIM);
+    // embed() values are different from the default fakeEmbed
+    // output (we shift by 1), proving the seam is live.
+    const def = fakeEmbed('hello di');
+    assert.notDeepEqual(r.vector, def);
+    // store with the custom-embedded vector
+    const store = await m.store('x', r.vector, { tag: 'di' });
+    assert.equal(store.ok, true);
+    // text-path search() routes through the same embedder
+    const hits = await m.search('hello di', { topK: 1 });
+    assert.ok(Array.isArray(hits));
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].id, 'x');
+    assert.equal(calls.length, 2, 'search() should also have called the embedder');
+  });
+
+  test('27. embedder throws: embed() returns tagged error; search() returns { ok:false, error } (no throw)', async () => {
+    const boom = new Error('provider offline');
+    const m = VectorBackend();
+    await m.init({
+      eventBus: { emit: () => {} },
+      embedder: async () => {
+        throw boom;
+      },
+    });
+    // embed() catches the throw at the boundary.
+    const r = await m.embed('anything');
+    assert.equal(r.ok, false);
+    assert.ok(r.error && typeof r.error.message === 'string');
+    assert.equal(r.error.message, 'provider offline');
+    // search() never throws either — the text path goes through
+    // embed()'s tagged error and surfaces it directly.
+    let searchResult;
+    try {
+      searchResult = await m.search('anything', { topK: 3 });
+    } catch (e) {
+      assert.fail(`search() should not throw when embedder throws, but threw: ${e?.message}`);
+    }
+    assert.equal(searchResult.ok, false);
+    assert.ok(searchResult.error && typeof searchResult.error.message === 'string');
+    assert.equal(searchResult.error.message, 'provider offline');
+    // Raw-vector path is unaffected — the embedder is only invoked
+    // for text queries.
+    await m.store('a', fakeEmbed('seed'));
+    const rawHits = await m.search(fakeEmbed('seed'), { topK: 1 });
+    assert.ok(Array.isArray(rawHits));
+    assert.equal(rawHits.length, 1);
+    assert.equal(rawHits[0].id, 'a');
   });
 });

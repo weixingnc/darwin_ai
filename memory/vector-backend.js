@@ -5,10 +5,20 @@
  *   - In-memory Map<id, { vector: number[], metadata: object }>
  *   - No persistence (restart = empty)
  *   - Cosine similarity search (top-k)
- *   - embed() stub: deterministic 8-dim pseudo-vector from text hash
- *   - TODO(p2) wire to provider.embed() — real provider-backed embeddings
+ *   - embed() runs an injectable embedder (default: deterministic 8-dim
+ *     fakeEmbed). Provider.embed() wiring is a P1-B2 concern; this
+ *     backend only needs the DI seam ready.
  *
- * LLM gate (ADR-009): embed() is deterministic local code; no network call.
+ * DI contract (V4 cycle 1):
+ *   init({ eventBus, embedder? }) — when embedder is supplied it must
+ *   be `(text) => Promise<number[]> | number[]` and is awaited by
+ *   embed() / search(). If it throws, embed() resolves to a tagged
+ *   error object and search() resolves to { ok:false, error } (no
+ *   throw crosses the module boundary).
+ *
+ * LLM gate (ADR-009): default fakeEmbed is deterministic local code;
+ * no network call. A real provider embedder would not be ADR-009-safe
+ * (that's the P1-B2 / ADR-009-revisit work).
  * Hygiene: no hard-coded paths, no real credentials. Tests use in-memory.
  */
 
@@ -86,7 +96,10 @@ export function VectorBackend() {
     _bus: null,
     _store: new Map(), // id → { vector: number[], metadata: object }
 
-    /** Init: just record the eventBus. No IO. */
+    /** Init: record the eventBus + capture the injected embedder.
+     *  When ctx.embedder is omitted we fall back to fakeEmbed so
+     *  existing call-sites (and tests) stay green until a real
+     *  provider.embed() is wired in. */
     async init(ctx) {
       const r = await ErrorHandler.wrapAsync(
         async () => {
@@ -94,6 +107,10 @@ export function VectorBackend() {
             throw new TypeError('[VectorBackend] init: ctx.eventBus is required');
           }
           b._bus = ctx.eventBus;
+          // V4 cycle 1: DI seam for real embeddings. Default keeps
+          // the deterministic fakeEmbed so the rest of the surface
+          // is byte-identical to PR-S1 until P1-B2 lands.
+          b._embedder = typeof ctx.embedder === 'function' ? ctx.embedder : fakeEmbed;
         },
         { context: 'memory.vector.init' },
       )();
@@ -102,10 +119,21 @@ export function VectorBackend() {
       }
     },
 
-    /** Embed a text into a fixed-dim vector. PR-S1 stub.
-     *  TODO(p2): wire to provider.embed() — replace fakeEmbed with a real call. */
-    embed(text) {
-      return fakeEmbed(text);
+    /** Embed a text into a fixed-dim vector. Always async; awaits
+     *  the injected embedder. A throwing embedder is caught at the
+     *  boundary and surfaced as { ok:false, error } instead of
+     *  propagating — vector store stays available for raw-vector
+     *  search even when text embedding is offline. */
+    async embed(text) {
+      try {
+        const v = await b._embedder(text);
+        if (!Array.isArray(v) || v.length !== VECTOR_DIM) {
+          return { ok: false, error: { message: `embedder returned non-${VECTOR_DIM}-d vector` } };
+        }
+        return { ok: true, vector: v };
+      } catch (e) {
+        return { ok: false, error: { message: e?.message || String(e) } };
+      }
     },
 
     /** Store a vector by id with metadata. Replaces if id exists. */
@@ -159,15 +187,32 @@ export function VectorBackend() {
     },
 
     /** Cosine-similarity search.
-     *  @param {number[]|string} query — vector OR text (auto-embed via stub)
+     *  @param {number[]|string} query — vector OR text (auto-embed)
      *  @param {object} [opts]
      *  @param {number} [opts.topK=5] — return at most this many hits
      *  @param {number} [opts.minScore=-1] — drop results below this score
-     *  @returns {Promise<Array<{id, score, metadata}>>} sorted by score desc */
+     *  @returns {Promise<Array<{id, score, metadata}>> | Promise<{ok:false, error}>}
+     *  Returns the hit array sorted by score desc on success.
+     *  Returns { ok:false, error } when the text-path embedder
+     *  throws or yields a wrong-dim vector (embedder never propagates
+     *  across the module boundary). Wrong-dim raw-vector queries
+     *  still resolve to [] (caller-side contract, not an embedder
+     *  fault). */
     async search(query, opts = {}) {
       const topK = Number.isInteger(opts.topK) ? opts.topK : 5;
       const minScore = typeof opts.minScore === 'number' ? opts.minScore : -1;
-      const qVec = typeof query === 'string' ? b.embed(query) : query;
+      let qVec;
+      if (typeof query === 'string') {
+        const e = await b.embed(query);
+        if (!e.ok) {
+          // Text-path embedder failure — never throw, never return
+          // a misleading empty array. Surface as tagged error.
+          return e;
+        }
+        qVec = e.vector;
+      } else {
+        qVec = query;
+      }
       if (!Array.isArray(qVec) || qVec.length !== VECTOR_DIM) {
         return [];
       }
