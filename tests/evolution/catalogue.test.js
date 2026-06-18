@@ -18,8 +18,13 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadCatalogue, addToCatalogue, proposeGrowth, audit } from '../../evolution/catalogue.js';
-import { _internal } from '../../evolution/catalogue.js';
+import {
+  loadCatalogue,
+  addToCatalogue,
+  proposeGrowth,
+  audit,
+  _internal,
+} from '../../evolution/catalogue.js';
 
 const TMP = mkdtempSync(join(tmpdir(), 'p2g-'));
 
@@ -153,4 +158,39 @@ test.afterAll(() => {
   } catch {
     /* best-effort cleanup */
   }
+});
+// T4 (Codex P1-1, 2026-06-18): NODE_ENV=test routes audit log
+// to a per-test temp file, NOT the production evolution/catalogue.log.
+import os from 'node:os';
+import fsSync from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
+
+const __testDir = dirname(fileURLToPath(import.meta.url));
+const PROD_LOG = join(__testDir, '..', '..', 'evolution', 'catalogue.log');
+const TEST_LOG = join(os.tmpdir(), 'darwin-test-catalogue.log');
+
+test('T4: NODE_ENV=test redirects appendAudit to a per-test temp file', async () => {
+  if (fsSync.existsSync(TEST_LOG)) {
+    fsSync.unlinkSync(TEST_LOG);
+  }
+  // Snapshot production log size BEFORE — the production log
+  // already has historical noise from before T4, so we only
+  // verify the synthetic entry is NOT appended to it.
+  const prodBefore = fsSync.existsSync(PROD_LOG) ? fsSync.readFileSync(PROD_LOG, 'utf8').length : 0;
+  _internal.appendAudit({ op: 'test-t4-isolated', value: 1 });
+  assert.ok(fsSync.existsSync(TEST_LOG), 'TEST_LOG_FILE should exist after appendAudit');
+  const content = fsSync.readFileSync(TEST_LOG, 'utf8');
+  assert.match(content, /test-t4-isolated/);
+  // Production log size must NOT have grown (no synthetic entry).
+  const prodAfter = fsSync.existsSync(PROD_LOG) ? fsSync.readFileSync(PROD_LOG, 'utf8').length : 0;
+  assert.equal(prodAfter, prodBefore, 'production catalogue.log must not grow during test mode');
+});
+
+test('T4: explicit logFile param still wins over TEST_LOG_FILE', async () => {
+  const customLog = join(os.tmpdir(), 'darwin-t4-explicit-' + Date.now() + '.log');
+  _internal.appendAudit({ op: 'test-t4-explicit', value: 2 }, customLog);
+  assert.ok(fsSync.existsSync(customLog), 'explicit logFile param should be honoured');
+  const content = fsSync.readFileSync(customLog, 'utf8');
+  assert.match(content, /test-t4-explicit/);
 });

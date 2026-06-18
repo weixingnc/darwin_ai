@@ -43,6 +43,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // MODULE_REPO_ROOT is the hardcoded repo root for this module (the Darwin
@@ -52,6 +53,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_REPO_ROOT = path.resolve(__dirname, '..');
 const DEFAULT_FILE = path.join(MODULE_REPO_ROOT, 'evolution', 'catalogue.json');
 const LOG_FILE = path.join(MODULE_REPO_ROOT, 'evolution', 'catalogue.log');
+// T4 (Codex P1-1, 2026-06-18): when NODE_ENV=test, redirect the
+// audit log to a per-test temp file. Without this, every test
+// run pollutes the production evolution/catalogue.log with
+// synthetic entries (which would then be returned by audit()
+// and confuse any real consumer). The temp file is regenerated
+// on every test process start.
+const TEST_LOG_FILE =
+  process.env.NODE_ENV === 'test' ? path.join(os.tmpdir(), 'darwin-test-catalogue.log') : LOG_FILE;
 
 /**
  * P2g baseline. Mirrors what diagnose.js had pre-P2g (P2c-2 grew
@@ -281,8 +290,11 @@ export function audit(opts = {}) {
 function appendAudit(entry, logFile) {
   const ts = new Date().toISOString();
   const full = { ts, ...entry };
-  fs.mkdirSync(path.dirname(logFile), { recursive: true });
-  fs.appendFileSync(logFile, JSON.stringify(full) + '\n', 'utf8');
+  // T4 (2026-06-18): route to TEST_LOG_FILE in test mode so
+  // synthetic entries don't pollute the production log.
+  const target = logFile || TEST_LOG_FILE;
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.appendFileSync(target, JSON.stringify(full) + '\n', 'utf8');
 }
 
 export const _internal = {
@@ -290,5 +302,7 @@ export const _internal = {
   GROWTH_CANDIDATES,
   DEFAULT_FILE,
   LOG_FILE,
+  TEST_LOG_FILE,
+  appendAudit,
   MODULE_REPO_ROOT,
 };
