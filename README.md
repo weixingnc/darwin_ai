@@ -43,11 +43,12 @@ human decides *what* to evolve; Darwin handles *how*.
 | Skills      | 6/6  | 100% |
 | Memory      | 3/3  | 100% |
 | Platforms   | 1/1  | 100% |
-| Plugins     | 2/2  | 100% |
+| Plugins     | 4/4  | 100% |
 
-- **Tests:** 894/894 pass · **Lint:** 0 errors · **Size:** 130 files, all < 1000 lines
+- **Tests:** 927/927 pass · **Lint:** 0 errors · **Size:** 137 files, all < 1000 lines
 - **Coverage:** 90.30% statements / 80.11% branches / 95.21% functions
-- **HEAD:** see `git log -1` (P2 series: 17+ cycles, plugin safety + persistence + orchestrator)
+- **HEAD:** `d7ba361` (32 cycles, P2 + W2/W3/W4/W5 series)
+- **Production plugins:** 4 — `logger` (example) · `audit` (P2c-2 + P2j) · `metrics` (W4-1) · `rate-limiter` (W5-1, first Darwin-self-grown plugin with real implementation)
 
 ## Self-evolution roadmap (delivered in 2026-06)
 
@@ -66,6 +67,14 @@ human decides *what* to evolve; Darwin handles *how*.
 | P2j   | `1d4275e` | Audit plugin on-disk persistence (JSONL append + post-restart replay) |
 | P3a   | `8071460` | `self-evolution evolve` CLI sub-command (--confirm required) |
 | P3b   | `ff373ab` | c8 coverage baseline + npm scripts (`npm run coverage`) |
+| P3c   | `2d1b2ab` | `README.md` (this file) — first-pass entry point |
+| W2-1  | `5607a7e` | Fix `diagnose` filtering co-located `*.test.js` (pre-existing leak) |
+| W2-2  | `55e86ab` | husky v9 deprecation cleanup + `.git/config` `core.hooksPath` fix |
+| W3-2  | `d6f7d1a` | CLI end-to-end test (closes the P3a loop) + per-repoRoot catalogue fix |
+| W4-1  | `cc1931e` | Third production plugin: `plugin/metrics.js` (observability) |
+| W4-2  | `459c12d` | Darwin grows `rate-limiter` end-to-end (PM-curated growth target) |
+| W5-1  | `5648477` | `plugin/rate-limiter.js` real implementation (sliding window) |
+| W5-3  | `d7ba361` | W4-2 e2e regression + catalogue 4→5 status sync |
 
 Each row is one commit. See `docs/V3_ROADMAP.md` for the long-form design notes.
 
