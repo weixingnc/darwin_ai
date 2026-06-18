@@ -10,6 +10,7 @@
     "test:coverage": "c8 --reporter=text --reporter=text-summary --reporter=html npm test",
     "coverage": "c8 --reporter=text-summary npm test",
     "coverage:html": "c8 --reporter=html npm test",
+    "test:perf": "node --test tests/perf/*.bench.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
