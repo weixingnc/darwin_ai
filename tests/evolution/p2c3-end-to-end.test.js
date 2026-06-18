@@ -218,10 +218,11 @@ describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
       'catalogue closure confirmed after Darwin applied its own proposal',
     );
     assert.ok(report.current.plugins.includes(MISSING_PLUGIN));
-    // W4-1 (2026-06-18): baseline plugin catalogue is now 3 (logger +
-    // audit + metrics), not 2. The MISSING_PLUGIN itself was just
-    // grown, so total = 4. (catalogue 3 → 4)
-    assert.equal(report.current.plugins.length, 4);
+    // W5-1 (2026-06-18): baseline plugin catalogue is now 4
+    // (logger + audit + metrics + rate-limiter), not 3. The
+    // MISSING_PLUGIN itself was just grown, so total = 5.
+    // (catalogue 4 → 5)
+    assert.equal(report.current.plugins.length, 5);
   });
 
   test('git tag is reachable in the worktree + matches the rollback anchor for the apply', () => {

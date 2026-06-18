@@ -145,11 +145,38 @@ describe('W4-2: Darwin grows its 4th plugin (rate-limiter) via CLI', () => {
     );
   });
 
-  test('Darwin grows rate-limiter end-to-end via evolve --confirm', () => {
-    // Inject 'rate-limiter' as missing from the worktree's catalogue.
-    // Darwin will see it in missing_plugins, generate a manifest stub
-    // proposal, apply it, and the build (verify) should pass.
+  test('W5-1: rate-limiter is shipped, Darwin no longer evolves it', () => {
+    // W4-2 (before W5-1) proved the closed loop on 'rate-limiter' as a
+    // missing plugin. W5-1 (this cycle) shipped the real implementation
+    // of plugin/rate-limiter.js, so the catalogue is now closure for
+    // rate-limiter — running evolve --confirm should return
+    // evolved:false / reason:no_missing_plugins, NOT try to grow it
+    // again. The injectMissingPlugin call below is a no-op because the
+    // target is already present in the worktree's plugin/ directory.
     const target = 'rate-limiter';
+    injectMissingPlugin(worktree, ['logger', 'audit', 'metrics', target]);
+
+    const result = runCli(worktree, ['self-evolution', 'evolve', '--confirm']);
+    assert.equal(result.code, 0, `CLI exit 0; stderr: ${result.stderr.slice(0, 500)}`);
+    const json = JSON.parse(result.stdout);
+    // The worktree (from HEAD = 5648477, which includes W5-1's
+    // plugin/rate-limiter.js) sees a closed catalogue. Darwin does
+    // not re-grow rate-limiter.
+    assert.equal(json.evolved, false, `expected evolved:false, got ${JSON.stringify(json)}`);
+    assert.equal(json.reason, 'no_missing_plugins');
+    assert.deepEqual(json.initial_missing_plugins, []);
+    // Sanity: the real plugin file is on disk.
+    const pluginPath = path.join(worktree, 'plugin', `${target}.js`);
+    assert.ok(fs.existsSync(pluginPath), 'rate-limiter plugin file exists');
+  });
+
+  test('W5-1 (regression): Darwin still grows a fresh missing plugin', () => {
+    // W4-2 was originally a 'rate-limiter' e2e. The closed-loop
+    // contract — "Darwin grows any missing plugin and verify passes" —
+    // is what we want to keep guarded. Use a synthetic fixture name
+    // (the worktree's catalogue.json overlay includes it; the worktree
+    // has no file with that name, so it counts as missing).
+    const target = 'w5-1-fresh-demo';
     injectMissingPlugin(worktree, ['logger', 'audit', 'metrics', target]);
 
     const result = runCli(worktree, ['self-evolution', 'evolve', '--confirm']);
@@ -165,13 +192,11 @@ describe('W4-2: Darwin grows its 4th plugin (rate-limiter) via CLI', () => {
     assert.deepEqual(json.final_missing_plugins, [], 'catalogue closure');
 
     const pluginPath = path.join(worktree, 'plugin', `${target}.js`);
-    assert.ok(fs.existsSync(pluginPath), 'rate-limiter plugin file created on disk');
-    // The stub should have init/destroy/enable/disable methods that
-    // throw "not implemented" — P2c-1 manifest template contract.
+    assert.ok(fs.existsSync(pluginPath), 'fresh plugin file created on disk');
     const stub = fs.readFileSync(pluginPath, 'utf8');
     assert.ok(
       stub.includes('not implemented'),
-      'stub has "not implemented" placeholder methods (P2c-1 contract)',
+      'fresh stub has "not implemented" placeholder methods (P2c-1 contract)',
     );
   });
 });
