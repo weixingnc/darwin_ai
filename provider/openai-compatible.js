@@ -15,6 +15,7 @@ import { createOpenAICompatibleProtocol } from './protocol/openai-compatible.js'
 import { OpenAICompatibleStreamProtocol } from './protocol/openai-compatible-stream.js';
 import { ConfigResolver } from '../core/config-resolver.js';
 import { EVENTS } from '../core/events.js';
+import rateLimiter from '../plugin/rate-limiter.js';
 
 const NOT_IMPLEMENTED_MSG = '[openai-compatible] NOT_IMPLEMENTED';
 const CHAT_PATH = '/v1/chat/completions';
@@ -106,6 +107,12 @@ export class OpenAICompatibleProvider extends ProviderBase {
   }
 
   async _doChat(messages, options = {}) {
+    // W7-1: rate-limit gate (W6-1 pattern applied to OpenAI-compatible).
+    // Per-scope 'openai-compatible' bucket — same shape as
+    // anthropic.js _enforceRateLimit but with the provider's own
+    // scope. Anthropic and OpenAI-compatible share the rate-limiter
+    // plugin but each gets its own budget.
+    this._enforceRateLimit('_doChat');
     const opts = options || {};
     const model = (typeof opts.model === 'string' && opts.model) || this._defaultModel;
     const bodyEntry = await this._protocol.buildRequest(messages, opts, model);
@@ -141,6 +148,32 @@ export class OpenAICompatibleProvider extends ProviderBase {
     };
   }
 
+  /**
+   * W7-1: rate-limit gate (mirror of provider/anthropic.js). Throws
+   * a structured error when the 'openai-compatible' bucket is full.
+   * Per-scope bucket — see plugin/rate-limiter.js v0.2.0. Anthropic
+   * and OpenAI-compatible share the rate-limiter plugin but each
+   * gets its own budget.
+   */
+  _enforceRateLimit(op) {
+    if (!rateLimiter._recording) {
+      return;
+    }
+    if (rateLimiter.tryAcquireFor('openai-compatible')) {
+      return;
+    }
+    const stats = rateLimiter.getStatsFor('openai-compatible');
+    const e = new Error(
+      `[openai-compatible] rate-limited on ${op} (${stats.current_rate}/${stats.max_calls} ` +
+        `in ${stats.window_ms}ms window — back off and retry)`,
+    );
+    e.code = 'RATE_LIMITED';
+    e.scope = 'openai-compatible';
+    e.op = op;
+    e.stats = stats;
+    throw e;
+  }
+
   async _doListModels() {
     const res = await fetchWithTimeout(
       `${this._baseUrl}${MODELS_PATH}`,
@@ -171,6 +204,8 @@ export class OpenAICompatibleProvider extends ProviderBase {
    * because ProviderBase._wrap resolves to a single entry, not a generator.
    */
   async *stream(messages, options = {}) {
+    // W7-1: rate-limit gate for streaming endpoints.
+    this._enforceRateLimit('stream');
     const opts = options || {};
     const ctx = { provider: this.name, phase: 'stream', traceId: randomUUID() };
     this._bus.emit(EVENTS.PROVIDER_CALL_BEFORE, ctx);
