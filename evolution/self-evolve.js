@@ -271,18 +271,19 @@ export async function runSelfEvolve(opts = {}) {
   }
 }
 
-export const _internal = {
-  selfEvolveApprover,
-  REPO_ROOT,
-  tryPluginLoad, // T5
-  maybePluginLoad, // T5
-};
-
 /**
  * T5 (Codex P1-2, 2026-06-18): wrapper around tryPluginLoad that
  * only runs the dynamic load smoke test when static verify passed.
  * Returns the skipped shape ({ok:null,...}) in all other cases so
  * the caller's shouldRollback logic stays a single expression.
+ *
+ * T7-W5 (2026-06-19): hoisted ABOVE _internal below. Previously
+ * this function was declared after the _internal export that
+ * references it; the only reason that worked was function-
+ * declaration hoisting. If anyone later refactors to
+ * `const maybePluginLoad = async (...) => ...` the module load
+ * throws "Cannot access 'maybePluginLoad' before initialization".
+ * Same applies to tryPluginLoad.
  */
 export async function maybePluginLoad(verifyResult, applyResult, cwd) {
   if (!verifyResult || verifyResult.pass !== true) {
@@ -313,6 +314,10 @@ export async function maybePluginLoad(verifyResult, applyResult, cwd) {
  *   { ok: true,  error: null, duration_ms }  — all new plugin files import cleanly
  *   { ok: false, error: '...', duration_ms }  — first failed import
  *   { ok: null,  error: null, duration_ms: 0 } — no plugin files were written
+ *
+ * T7-W5 (2026-06-19): hoisted above _internal for the same reason
+ * as maybePluginLoad — to make the _internal reference safe under
+ * any future refactor that drops function-declaration hoisting.
  *
  * @param {object|null} applyResult  the apply.js return value
  * @param {string} cwd               the worktree root
@@ -345,3 +350,10 @@ export async function tryPluginLoad(applyResult, cwd) {
   }
   return { ok: true, error: null, duration_ms: Date.now() - t0 };
 }
+
+export const _internal = {
+  selfEvolveApprover,
+  REPO_ROOT,
+  tryPluginLoad, // T5
+  maybePluginLoad, // T5
+};
