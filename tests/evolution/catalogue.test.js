@@ -11,6 +11,10 @@
  *   7. audit() returns the change history
  *   8. diagnose.js PLUGIN_CATALOGUE picks up addToCatalogue() additions
  *      (end-to-end: add → re-diagnose → missing_plugins doesn't include the new one)
+ *
+ * T7 (2026-06-19): the W1 addToCatalogue() pollution regression
+ * test lives in tests/evolution/catalogue-pollution.test.js so this
+ * file stays under the 200-line cap. T4 appendAudit() test stays here.
  */
 
 import { test } from 'node:test';

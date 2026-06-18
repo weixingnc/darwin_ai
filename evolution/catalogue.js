@@ -212,7 +212,17 @@ export function loadCatalogue(opts = {}) {
  */
 export function addToCatalogue(category, name, opts = {}) {
   const file = opts.file || DEFAULT_FILE;
-  const logFile = opts.logFile || LOG_FILE;
+  // T7-W1 (2026-06-19): when the caller doesn't pass an explicit
+  // `logFile`, fall back to TEST_LOG_FILE (not LOG_FILE) so the
+  // NODE_ENV=test routing that appendAudit applies is actually
+  // reached. Previously we resolved to LOG_FILE here, which
+  // bypassed the test fallback and let `npm test` write synthetic
+  // entries into the production evolution/catalogue.log (reviewer
+  // evidence: 14 lines of `metrics-e2e` after a T4-era test run).
+  // TEST_LOG_FILE itself is the same constant appendAudit uses
+  // and is already NODE_ENV-aware (== LOG_FILE in prod, == tmp file
+  // in test), so production callers are unaffected.
+  const logFile = opts.logFile || TEST_LOG_FILE;
   const reason = opts.reason || 'unspecified';
   const tagCwd = opts.cwd || MODULE_REPO_ROOT;
   const cat = String(category || '').toLowerCase();
