@@ -139,7 +139,51 @@ diagnose:start → diagnose:end → propose:start → propose:end
 - **v3+ P1 Darwin 自长** = Darwin 真的用这个能力长肉（蛋）
 - **v3+ 完全延续 v2 哲学** —— 启动期 PM 不写具体 provider/tool/skill/memory 后端，全部由 Darwin 用 SelfEvolution 自长
 
-**v2 是"造徒手打猎的数字生命体"；v3+ 是"数字生命体学会造石头弓箭"**。
+- **v2 是"造徒手打猎的数字生命体"；v3+ 是"数字生命体学会造石头弓箭"**。
+
+---
+
+## P2 路线图收口状态（2026-06-18 收口）
+
+V3+ P0/P1 已经在 2026-06-15 06-18 期间全部跑通。P2 = plugin evolution（Darwin 自进化贯通 plugin 维度），分 13 cycle：
+
+| 阶段 | SHA | 一句话 |
+|---|---|---|
+| ✅ P2a | `a9fd668` | plugin CLI bug fix (`[object Object]` → `→ logger`) |
+| ✅ P2b | `694f1ce` | diagnose 扫 plugins + missing_plugins 字段 |
+| ✅ P2d | `f6f3e6d` | plugin manifest 安全契约 (deny-by-default) |
+| ✅ P2c-1 | `1c78d86` | evolution propose 加 plugin 模板 |
+| ✅ P2c-2 | `71e0ffb` | 真生产 audit plugin + catalogue 1→2 |
+| ✅ P2c-3 | `dbd4c9e` | Darwin 自指端到端 (worktree + subprocess) |
+| ✅ P2e | `52a645b` | runtime sandbox monkey-patch (9 高危方法) |
+| ✅ P2f | `55d90a5` | self-evolve orchestrator (closed loop, confirm:true) |
+| ✅ P2g | `f63c544` | catalogue 持久化 + 增长策略 (JSON overlay) |
+| ✅ P2i | `0ade10b` | plugin runtime sandbox 实装 (load/unload activate) |
+| ✅ P2j | `1d4275e` | audit plugin on-disk persistence (fs:append JSONL) |
+| ✅ P3a | `8071460` | self-evolve CLI 拍板入口 (--confirm) |
+| ✅ P3b | `ff373ab` | c8 coverage baseline 90.3% (含 lockfile 修复) |
+| ✅ P3c | `2d1b2ab` | README.md (121 行 GitHub 入口) |
+| ✅ W2-1 | `5607a7e` | 修 diagnose .test.js pre-existing bug |
+| ✅ W2-2 | `55e86ab` | husky v9 deprecation + core.hooksPath 配置 bug 修复 |
+| ✅ W3-2 | `d6f7d1a` | 端到端自进化 CLI 真跑通 (P2g catalogue per-repoRoot 修复) |
+
+**P2 路线图收口** = 17 cycle 全 ✅，**HEAD `d6f7d1a`**，6 catalogue 全 closure，897 tests pass / 0 lint / 131 files < 1000 / 90.30% coverage。详见 `../README.md` 的 P2 路线图表。
+
+### W3+ 残存尾巴
+
+- **W3-1**: `.husky/_/` 残留 stub 目录清理（已做，.gitignore 排除无需 commit）
+- **W3-3**: skill v3-long-meat-cycle.md + memory V3+ 进度更新（已做，沉淀 per-repoRoot 模式 + amend SHA 教训）
+- **W4+**: Darwin 推 `plugin/metrics.js` 真兑现 P2g GROWTH_CANDIDATES（plugin #3 安装，catalogue 2→3）
+
+## 与 v2 哲学一致性
+
+- **v2 哲学** = 骨架 only，肉 Darwin 长
+- **v3+ P0 SelfEvolution** = 给 Darwin 装"自己长肉"的能力（鸡）
+- **v3+ P1 Darwin 自长** = Darwin 真的用这个能力长肉（蛋）
+- **v3+ P2 plugin evolution** = Darwin 学会"装新器官"（plugin = Darwin 的新器官）
+- **v3+ 完全延续 v2 哲学** —— 启动期 PM 不写具体 provider/tool/skill/memory 后端，全部由 Darwin 用 SelfEvolution 自长
+
+**v2 是"造徒手打猎的数字生命体"；v3+ P0/P1 是"学会造石头弓箭"；v3+ P2 是"学会装新器官（plugin）"**。
 
 ---
 
