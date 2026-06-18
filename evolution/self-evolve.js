@@ -212,7 +212,13 @@ export async function runSelfEvolve(opts = {}) {
     // Step 4: Verify (npm test + lint + size-check). If fail → rollback
     // to the pre-apply tag and surface the failure.
     verifyResult = await verify({ cwd });
-    if (!verifyResult.pass) {
+    // T5 (Codex P1-2, 2026-06-18): dynamic plugin-load smoke test
+    // (see tryPluginLoad below). Runs after static verify, before
+    // declaring success — catches import-time errors in newly
+    // written plugin files that static verify would miss.
+    const pluginLoad = await maybePluginLoad(verifyResult, applyResult, cwd);
+    const shouldRollback = !verifyResult.pass || pluginLoad.ok === false;
+    if (shouldRollback) {
       // Rollback uses the pre-apply tag to revert the file write.
       // rollback.js signature: (proposal, tag_sha, opts) — we pass the
       // proposal object (for audit fields) + the tag_sha (not tag name).
@@ -248,6 +254,7 @@ export async function runSelfEvolve(opts = {}) {
       proposal,
       apply_result: applyResult,
       verify_result: verifyResult,
+      plugin_load: pluginLoad, // T5
       final_missing_plugins: finalMissing,
       duration_ms: Date.now() - startedAt,
       events_emitted: eventsEmitted,
@@ -267,4 +274,74 @@ export async function runSelfEvolve(opts = {}) {
 export const _internal = {
   selfEvolveApprover,
   REPO_ROOT,
+  tryPluginLoad, // T5
+  maybePluginLoad, // T5
 };
+
+/**
+ * T5 (Codex P1-2, 2026-06-18): wrapper around tryPluginLoad that
+ * only runs the dynamic load smoke test when static verify passed.
+ * Returns the skipped shape ({ok:null,...}) in all other cases so
+ * the caller's shouldRollback logic stays a single expression.
+ */
+export async function maybePluginLoad(verifyResult, applyResult, cwd) {
+  if (!verifyResult || verifyResult.pass !== true) {
+    return { ok: null, error: null, duration_ms: 0 };
+  }
+  return tryPluginLoad(applyResult, cwd);
+}
+
+/**
+ * T5 (Codex P1-2, 2026-06-18): dynamic plugin-load smoke test.
+ *
+ * After apply writes new plugin/*.js files and static verify
+ * (npm test + lint + size-check) passes, we still need to know
+ * that the new files can actually be `import()`-ed without
+ * throwing. A syntactically-valid ES module can still fail at
+ * import time if it has broken top-level statements (e.g. a
+ * reference to an undefined symbol that lint allows, a missing
+ * import in a CJS path, or a JSON parse of a corrupt manifest).
+ *
+ * This function is intentionally simple: it iterates the files
+ * apply wrote, narrows to plugin/*.js, and tries to dynamic-
+ * import each. The first import that throws is captured and
+ * surfaced via the return shape; the caller (runSelfEvolve)
+ * treats pluginLoad.ok === false as a verify-class failure
+ * and triggers rollback just like a lint or test failure.
+ *
+ * Returns:
+ *   { ok: true,  error: null, duration_ms }  — all new plugin files import cleanly
+ *   { ok: false, error: '...', duration_ms }  — first failed import
+ *   { ok: null,  error: null, duration_ms: 0 } — no plugin files were written
+ *
+ * @param {object|null} applyResult  the apply.js return value
+ * @param {string} cwd               the worktree root
+ * @returns {Promise<{ok: boolean|null, error: string|null, duration_ms: number}>}
+ */
+export async function tryPluginLoad(applyResult, cwd) {
+  if (
+    !applyResult ||
+    !Array.isArray(applyResult.files_written) ||
+    applyResult.files_written.length === 0
+  ) {
+    return { ok: null, error: null, duration_ms: 0 };
+  }
+  const t0 = Date.now();
+  const path = await import('node:path');
+  for (const f of applyResult.files_written) {
+    if (typeof f !== 'string' || !f.startsWith('plugin/') || !f.endsWith('.js')) {
+      continue;
+    }
+    try {
+      const abs = path.default.resolve(cwd, f);
+      await import(abs);
+    } catch (err) {
+      return {
+        ok: false,
+        error: `${f}: ${err.message}`,
+        duration_ms: Date.now() - t0,
+      };
+    }
+  }
+  return { ok: true, error: null, duration_ms: Date.now() - t0 };
+}
