@@ -28,8 +28,15 @@ export async function pluginAdd(path) {
   const loader = createPluginLoader({ eventBus: bus, registry });
 
   // Stage 1: load (parse + import) — loader.load() returns { ok, name? } (ErrorHandler shape)
+  // P2d (2026-06-18): if validate() throws on manifest (e.g. PLUGIN_DENIED
+  // permission), ErrorHandler wraps → {ok:false, error}. Surface the error
+  // and abort before the misleading "Loaded:" log and bogus init/enable.
   const loadResult = await loader.load(path);
-  const name = loadResult?.name || _nameFromPath(path);
+  if (!loadResult?.ok) {
+    const reason = loadResult?.error?.message || 'unknown error';
+    throw new Error(`plugin load failed (${path}): ${reason}`);
+  }
+  const name = loadResult.name || _nameFromPath(path);
   console.log(`✓ Loaded: ${path} → ${name}`);
 
   // Stage 2: init (call plugin.init({ eventBus }))

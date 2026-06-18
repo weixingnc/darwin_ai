@@ -96,6 +96,24 @@ export class PluginRegistry {
     return this._plugins.size;
   }
 
+  /**
+   * P2d (2026-06-18): check if a registered plugin holds a given permission.
+   * Used by introspective callers (e.g. diagnose, audit) and by P2d-2
+   * sandbox to verify a plugin's declared permissions before any runtime
+   * primitive is actually invoked. Returns false on unknown plugin.
+   * @param {string} name
+   * @param {string} perm
+   * @returns {boolean}
+   */
+  hasPermission(name, perm) {
+    const p = this._plugins.get(name);
+    if (!p) {
+      return false;
+    }
+    const perms = Array.isArray(p.permissions) ? p.permissions : [];
+    return perms.includes(perm);
+  }
+
   /** Remove a plugin. NEVER throws. */
   unregister(name) {
     const result = ErrorHandler.wrap(() => {

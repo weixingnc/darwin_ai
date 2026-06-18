@@ -11,10 +11,11 @@ import { EventBus } from '../core/event-bus.js';
 import { PluginRegistry } from '../plugin/registry.js';
 import { EVENTS } from '../core/events.js';
 
-const make = (name) => ({
+const make = (name, extra = {}) => ({
   name,
   version: '1.0.0',
   capabilities: ['tool'],
+  ...extra,
   init() {},
   destroy() {},
   enable() {},
@@ -131,5 +132,33 @@ describe('PluginRegistry — error isolation', () => {
     reg.register(make('a'));
     assert.equal(seen.length, 1);
     assert.equal(seen[0], 'a');
+  });
+});
+
+describe('PluginRegistry — P2d hasPermission', () => {
+  let bus, reg;
+  beforeEach(() => {
+    bus = new EventBus();
+    reg = new PluginRegistry({ eventBus: bus });
+  });
+
+  test('returns true for declared permission', () => {
+    reg.register(make('logger', { permissions: ['bus:on', 'log:info'] }));
+    assert.equal(reg.hasPermission('logger', 'bus:on'), true);
+    assert.equal(reg.hasPermission('logger', 'log:info'), true);
+  });
+
+  test('returns false for non-declared permission', () => {
+    reg.register(make('logger', { permissions: ['bus:on'] }));
+    assert.equal(reg.hasPermission('logger', 'fs:delete'), false);
+  });
+
+  test('returns false for unknown plugin name', () => {
+    assert.equal(reg.hasPermission('nope', 'bus:on'), false);
+  });
+
+  test('returns false for plugin registered without permissions field (backward compat)', () => {
+    reg.register(make('legacy'));
+    assert.equal(reg.hasPermission('legacy', 'bus:on'), false);
   });
 });

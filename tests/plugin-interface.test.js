@@ -1,11 +1,19 @@
 /**
  * IPlugin contract tests — TDD red→green for PR 11a.
  * Covers: shape, prototype methods, validate() duck-typing errors.
+ *
+ * P2d (2026-06-18): extended with manifest validation tests
+ * (PLUGIN_CAPABILITIES / PLUGIN_PERMISSIONS / PLUGIN_DENIED).
  */
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { IPlugin } from '../plugin/interface.js';
+import {
+  IPlugin,
+  PLUGIN_CAPABILITIES,
+  PLUGIN_PERMISSIONS,
+  PLUGIN_DENIED,
+} from '../plugin/interface.js';
 
 describe('IPlugin — shape', () => {
   test('has name + version + capabilities fields', () => {
@@ -81,5 +89,129 @@ describe('IPlugin.validate', () => {
   test('returns {ok: true} for a minimal valid plugin', () => {
     const r = IPlugin.validate(validPlugin());
     assert.equal(r.ok, true);
+  });
+});
+
+describe('IPlugin — P2d manifest enums', () => {
+  test('PLUGIN_CAPABILITIES is a frozen array of known categories', () => {
+    assert.ok(Array.isArray(PLUGIN_CAPABILITIES));
+    assert.ok(Object.isFrozen(PLUGIN_CAPABILITIES));
+    for (const cat of ['tool', 'skill', 'memory', 'hook', 'listener']) {
+      assert.ok(PLUGIN_CAPABILITIES.includes(cat), `expected ${cat} in PLUGIN_CAPABILITIES`);
+    }
+  });
+
+  test('PLUGIN_PERMISSIONS is a frozen whitelist of fine-grained actions', () => {
+    assert.ok(Array.isArray(PLUGIN_PERMISSIONS));
+    assert.ok(Object.isFrozen(PLUGIN_PERMISSIONS));
+    for (const p of [
+      'bus:on',
+      'bus:off',
+      'bus:emit',
+      'config:get',
+      'log:info',
+      'log:warn',
+      'log:error',
+    ]) {
+      assert.ok(PLUGIN_PERMISSIONS.includes(p), `expected ${p} in PLUGIN_PERMISSIONS`);
+    }
+  });
+
+  test('PLUGIN_DENIED is a frozen blocklist of high-risk primitives', () => {
+    assert.ok(Array.isArray(PLUGIN_DENIED));
+    assert.ok(Object.isFrozen(PLUGIN_DENIED));
+    for (const p of [
+      'process:exit',
+      'fs:delete',
+      'fs:write',
+      'child_process:exec',
+      'network:raw',
+    ]) {
+      assert.ok(PLUGIN_DENIED.includes(p), `expected ${p} in PLUGIN_DENIED`);
+    }
+  });
+});
+
+describe('IPlugin.validate — P2d manifest enforcement', () => {
+  function pluginWith(extra) {
+    return {
+      name: 'p',
+      version: '1.0.0',
+      capabilities: ['tool'],
+      ...extra,
+    };
+  }
+
+  test('rejects capability not in PLUGIN_CAPABILITIES (e.g. "weird-cat")', () => {
+    assert.throws(
+      () => IPlugin.validate(pluginWith({ capabilities: ['weird-cat'] })),
+      /not in PLUGIN_CAPABILITIES/,
+    );
+  });
+
+  test('accepts every category in PLUGIN_CAPABILITIES', () => {
+    for (const cat of PLUGIN_CAPABILITIES) {
+      const r = IPlugin.validate(pluginWith({ capabilities: [cat] }));
+      assert.equal(r.ok, true, `expected ${cat} to be valid`);
+    }
+  });
+
+  test('rejects permissions field when not an array', () => {
+    assert.throws(() => IPlugin.validate(pluginWith({ permissions: 'bus:on' })), /permissions/);
+    assert.throws(() => IPlugin.validate(pluginWith({ permissions: 42 })), /permissions/);
+  });
+
+  test('rejects unknown permission (not in PLUGIN_PERMISSIONS)', () => {
+    assert.throws(
+      () => IPlugin.validate(pluginWith({ permissions: ['unknown:perm'] })),
+      /not in PLUGIN_PERMISSIONS/,
+    );
+  });
+
+  test('rejects non-string permission element', () => {
+    assert.throws(
+      () => IPlugin.validate(pluginWith({ permissions: ['bus:on', 1] })),
+      /permission must be string/,
+    );
+  });
+
+  test('accepts every permission in PLUGIN_PERMISSIONS', () => {
+    const r = IPlugin.validate(pluginWith({ permissions: [...PLUGIN_PERMISSIONS] }));
+    assert.equal(r.ok, true);
+  });
+
+  test('accepts plugin without permissions (backward compat)', () => {
+    // Existing tests (PR 11a) construct plugins with no `permissions` field.
+    // This MUST stay valid — adding P2d should not break legacy plugins.
+    const r = IPlugin.validate(
+      pluginWith({
+        /* no permissions */
+      }),
+    );
+    assert.equal(r.ok, true);
+  });
+
+  test('rejects when permissions ∩ PLUGIN_DENIED is non-empty (process:exit)', () => {
+    assert.throws(
+      () => IPlugin.validate(pluginWith({ permissions: ['process:exit'] })),
+      /denied values/,
+    );
+  });
+
+  test('rejects every entry in PLUGIN_DENIED', () => {
+    for (const denied of PLUGIN_DENIED) {
+      assert.throws(
+        () => IPlugin.validate(pluginWith({ permissions: [denied] })),
+        /denied values/,
+        `expected ${denied} to be rejected`,
+      );
+    }
+  });
+
+  test('rejects mixed permissions (one valid + one denied)', () => {
+    assert.throws(
+      () => IPlugin.validate(pluginWith({ permissions: ['bus:on', 'fs:delete'] })),
+      /denied values.*fs:delete/,
+    );
   });
 });
