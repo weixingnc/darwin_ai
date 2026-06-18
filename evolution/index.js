@@ -20,3 +20,8 @@ export { learn, appendInsight } from './learn.js';
 // PR-S1 re-exports (kept here so a single `import * from evolution` works).
 export { diagnose } from './diagnose.js';
 export { propose } from './propose.js';
+
+// P2f (2026-06-18): self-evolve orchestrator — chains diagnose → propose →
+// apply → verify → re-diagnose into one opt-in call. See evolution/self-evolve.js
+// for the safety invariants (confirm flag, sandbox wrap, verify+rollback).
+export { runSelfEvolve } from './self-evolve.js';
