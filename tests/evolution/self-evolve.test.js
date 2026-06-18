@@ -87,17 +87,18 @@ function cleanupWorktree(root) {
 }
 
 function injectMissingPlugin(worktree, newCatalogue) {
-  const filePath = path.join(worktree, 'evolution/diagnose.js');
-  const before = fs.readFileSync(filePath, 'utf8');
-  const re = /const PLUGIN_CATALOGUE = \[(.*?)\]\.map/;
-  const m = before.match(re);
-  if (!m) {
-    throw new Error('PLUGIN_CATALOGUE literal not found');
-  }
-  const newLit = `const PLUGIN_CATALOGUE = [${newCatalogue.map((s) => `'${s}'`).join(', ')}].map`;
-  const after = before.replace(re, newLit);
-  fs.writeFileSync(filePath, after, 'utf8');
-  childProcess.execFileSync('git', ['add', 'evolution/diagnose.js'], {
+  // P2g (2026-06-18): catalogue override is now done via evolution/catalogue.json
+  // (overlay file), not by patching the PLUGIN_CATALOGUE literal in
+  // evolution/diagnose.js (that literal no longer exists — diagnose.js
+  // sources catalogues from evolution/catalogue.js).
+  const filePath = path.join(worktree, 'evolution/catalogue.json');
+  const before = fs.existsSync(filePath)
+    ? fs.readFileSync(filePath, 'utf8')
+    : '{}';
+  const parsed = JSON.parse(before || '{}');
+  parsed.plugins = newCatalogue;
+  fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'evolution/catalogue.json'], {
     cwd: worktree,
     stdio: 'pipe',
   });

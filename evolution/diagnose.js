@@ -107,7 +107,17 @@ function listJsStems(dir) {
     if (!e.isFile()) {
       continue;
     }
-    if (!e.name.toLowerCase().endsWith('.js')) {
+    const lower = e.name.toLowerCase();
+    if (!lower.endsWith('.js')) {
+      continue;
+    }
+    // W2-1 (2026-06-18): filter out `*.test.js` fixtures. Co-located test
+    // files (`provider/claude-3.5.test.js`, `tool/builtins/bash.test.js`)
+    // were leaking into `current.providers` / `current.tools` etc. as
+    // stems, inflating the surface and confusing the introspection
+    // ("did Darwin really install 16 providers?"). Only production
+    // `.js` files count as installed capability surface.
+    if (lower.endsWith('.test.js')) {
       continue;
     }
     out.push(e.name.slice(0, -3).toLowerCase());

@@ -91,34 +91,38 @@ function cleanupWorktree(worktree) {
 }
 
 /**
- * Override PLUGIN_CATALOGUE in a tmpdir worktree to include MISSING_PLUGIN.
- * Reads the original diagnose.js, replaces the catalogue literal, writes
- * back, then commits so `git status` is clean for downstream tooling.
- *
- * Returns { catalogue, previousCatalogue } so tests can assert the diff.
- */
-function overrideCatalogue(worktree, newCatalogue) {
-  const filePath = path.join(worktree, 'evolution/diagnose.js');
-  const before = fs.readFileSync(filePath, 'utf8');
-  const re = /const PLUGIN_CATALOGUE = \[(.*?)\]\.map/;
-  const m = before.match(re);
-  if (!m) {
-    throw new Error('PLUGIN_CATALOGUE literal not found in evolution/diagnose.js');
-  }
-  const newLit = `const PLUGIN_CATALOGUE = [${newCatalogue.map((s) => `'${s}'`).join(', ')}].map`;
-  const after = before.replace(re, newLit);
-  fs.writeFileSync(filePath, after, 'utf8');
-  childProcess.execFileSync('git', ['add', 'evolution/diagnose.js'], {
-    cwd: worktree,
-    stdio: 'pipe',
-  });
-  childProcess.execFileSync(
-    'git',
-    ['commit', '--quiet', '-m', `p2c3: extend catalogue with ${MISSING_PLUGIN}`, '--no-verify'],
-    { cwd: worktree, stdio: 'pipe' },
-  );
-  return { previousCatalogue: m[1], newCatalogue };
-}
+ /**
+  * Override PLUGIN_CATALOGUE in the worktree via catalogue.json overlay
+  * (P2g, 2026-06-18). Before P2g, this function patched the
+  * PLUGIN_CATALOGUE literal in evolution/diagnose.js — that literal
+  * no longer exists (diagnose.js now sources catalogues from
+  * evolution/catalogue.js). We now write evolution/catalogue.json
+  * with the new plugin overlay and commit.
+  *
+  * Returns { catalogue, previousCatalogue } so tests can assert the diff.
+  */
+ function overrideCatalogue(worktree, newCatalogue) {
+   const filePath = path.join(worktree, 'evolution/catalogue.json');
+   const before = fs.existsSync(filePath)
+     ? fs.readFileSync(filePath, 'utf8')
+     : '{}';
+   const parsed = JSON.parse(before || '{}');
+   // Compute the previous catalogue (whatever was committed before this test
+   // ran; could be empty `{}` if no overlay was committed yet).
+   const previous = parsed.plugins || [];
+   parsed.plugins = newCatalogue;
+   fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+   childProcess.execFileSync('git', ['add', 'evolution/catalogue.json'], {
+     cwd: worktree,
+     stdio: 'pipe',
+   });
+   childProcess.execFileSync(
+     'git',
+     ['commit', '--quiet', '-m', `p2c3: extend catalogue with ${MISSING_PLUGIN}`, '--no-verify'],
+     { cwd: worktree, stdio: 'pipe' },
+   );
+   return { previousCatalogue: previous, newCatalogue };
+ }
 
 describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
   let worktree;
@@ -137,7 +141,11 @@ describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
       'audit',
       MISSING_PLUGIN,
     ]);
-    assert.match(previousCatalogue, /'logger', 'audit'/);
+    // P2g: previous catalogue is the JSON overlay (array, not a string
+    // literal). Pre-P2g this was a regex match against the stringified
+    // const PLUGIN_CATALOGUE = ['logger', 'audit'].map(...) literal.
+    assert.ok(Array.isArray(previousCatalogue), 'previous catalogue is an array');
+    assert.deepEqual(previousCatalogue, []);
     assert.equal(newCatalogue.length, 3);
     assert.ok(newCatalogue.includes(MISSING_PLUGIN));
   });
