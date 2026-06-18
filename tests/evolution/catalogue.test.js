@@ -1,20 +1,10 @@
 /**
  * Evolution Catalogue — P2g persistence, growth candidate, audit log (2026-06-18).
  *
- * Tests:
- *   1. loadCatalogue() returns DEFAULTS when no overlay file exists
- *   2. loadCatalogue() merges overlay file (additive only)
- *   3. addToCatalogue() writes to overlay file + audit log
- *   4. addToCatalogue() is idempotent (no-op on existing)
- *   5. proposeGrowth() surfaces first candidate not yet installed
- *   6. proposeGrowth() returns null when all candidates installed
- *   7. audit() returns the change history
- *   8. diagnose.js PLUGIN_CATALOGUE picks up addToCatalogue() additions
- *      (end-to-end: add → re-diagnose → missing_plugins doesn't include the new one)
- *
- * T7 (2026-06-19): the W1 addToCatalogue() pollution regression
- * test lives in tests/evolution/catalogue-pollution.test.js so this
- * file stays under the 200-line cap. T4 appendAudit() test stays here.
+ * T7-W2 (2026-06-19): the T4 block (imports + constants + tests)
+ * now sits BEFORE test.afterAll. W1 regression test lives in
+ * tests/evolution/catalogue-pollution.test.js (kept out of this
+ * file to stay under the 200-line cap).
  */
 
 import { test } from 'node:test';
@@ -155,16 +145,10 @@ test('P2g: addToCatalogue() + diagnose() end-to-end (catalogue.js drives PLUGIN_
   assert.ok(cat.plugins.includes('metrics-e2e'));
 });
 
-test.afterAll ??= (fn) => test('afterAll', async () => fn());
-test.afterAll(() => {
-  try {
-    rmSync(TMP, { recursive: true, force: true });
-  } catch {
-    /* best-effort cleanup */
-  }
-});
 // T4 (Codex P1-1, 2026-06-18): NODE_ENV=test routes audit log
 // to a per-test temp file, NOT the production evolution/catalogue.log.
+// T7-W2 (2026-06-19): this block was moved to BEFORE test.afterAll
+// (it used to sit after afterAll, which was a latent footgun).
 import os from 'node:os';
 import fsSync from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -197,4 +181,13 @@ test('T4: explicit logFile param still wins over TEST_LOG_FILE', async () => {
   assert.ok(fsSync.existsSync(customLog), 'explicit logFile param should be honoured');
   const content = fsSync.readFileSync(customLog, 'utf8');
   assert.match(content, /test-t4-explicit/);
+});
+
+test.afterAll ??= (fn) => test('afterAll', async () => fn());
+test.afterAll(() => {
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* best-effort cleanup */
+  }
 });
