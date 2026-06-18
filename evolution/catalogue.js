@@ -45,9 +45,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, '..');
-const DEFAULT_FILE = path.join(REPO_ROOT, 'evolution', 'catalogue.json');
-const LOG_FILE = path.join(REPO_ROOT, 'evolution', 'catalogue.log');
+// MODULE_REPO_ROOT is the hardcoded repo root for this module (the Darwin
+// main repo). Catalogue overlay files are read from this path by default.
+// Tests / self-evolve worktrees can override via loadCatalogue({file:...})
+// or by setting DARWIN_CATALOGUE_FILE env var. See loadCatalogue() docs.
+const MODULE_REPO_ROOT = path.resolve(__dirname, '..');
+const DEFAULT_FILE = path.join(MODULE_REPO_ROOT, 'evolution', 'catalogue.json');
+const LOG_FILE = path.join(MODULE_REPO_ROOT, 'evolution', 'catalogue.log');
 
 /**
  * P2g baseline. Mirrors what diagnose.js had pre-P2g (P2c-2 grew
@@ -128,12 +132,33 @@ function ensureFile(file, defaultContent) {
  * defaults. This guarantees Darwin's baseline (the consts it needs to
  * function) is always present.
  *
+ * W3-2 (2026-06-18): the overlay file path is no longer hardcoded to
+ * the module's repo root. By default it uses MODULE_REPO_ROOT (the main
+ * repo), but callers can pass:
+ *   - opts.file: absolute path to the overlay JSON file
+ *   - process.env.DARWIN_CATALOGUE_FILE: same, as env var (useful for
+ *     self-evolve worktrees where the worktree has its own catalogue
+ *     that should be honored, not the main repo's)
+ *   - opts.repoRoot: derives <repoRoot>/evolution/catalogue.json
+ * Without any of these, the file defaults to MODULE_REPO_ROOT
+ * (back-compat).
+ *
  * @param {object} [opts]
  * @param {string} [opts.file] override the overlay file path (tests use this)
+ * @param {string} [opts.repoRoot] derive file from <repoRoot>/evolution/catalogue.json
  * @returns {object} {providers, tools, skills, memory_backends, platforms, plugins}
  */
 export function loadCatalogue(opts = {}) {
-  const file = opts.file || DEFAULT_FILE;
+  let file;
+  if (opts.file) {
+    file = opts.file;
+  } else if (opts.repoRoot) {
+    file = path.join(opts.repoRoot, 'evolution', 'catalogue.json');
+  } else if (process.env.DARWIN_CATALOGUE_FILE) {
+    file = process.env.DARWIN_CATALOGUE_FILE;
+  } else {
+    file = DEFAULT_FILE;
+  }
   const overlay = readJsonOrEmpty(file);
   const out = {};
   for (const cat of Object.keys(DEFAULTS)) {
@@ -262,5 +287,5 @@ export const _internal = {
   GROWTH_CANDIDATES,
   DEFAULT_FILE,
   LOG_FILE,
-  REPO_ROOT,
+  MODULE_REPO_ROOT,
 };

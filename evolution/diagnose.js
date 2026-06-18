@@ -44,16 +44,25 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 // `xxx_CATALOGUE` consts are kept ONLY for back-compat with external
 // callers that read `_internal.PROVIDER_CATALOGUE` etc. — they're
 // populated from the catalogue module at module load time.
-const _CATALOGUE = loadCatalogueFromModule();
-const PROVIDER_CATALOGUE = _CATALOGUE.providers;
-const TOOL_CATALOGUE = _CATALOGUE.tools;
-const SKILL_CATALOGUE = _CATALOGUE.skills;
-const MEMORY_CATALOGUE = _CATALOGUE.memory_backends;
+//
+// W3-2 (2026-06-18): catalogue variables are `let` not `const` so that
+// `run()` can RE-LOAD the catalogue with `repoRoot` for worktree-based
+// self-evolution. Before W3-2, calling `diagnose({repoRoot: <worktree>})`
+// would still compute `missing_plugins` against the MAIN repo's
+// PLUGIN_CATALOGUE (module-scope const), so worktree catalogue overlays
+// were invisible to diagnose. Now: the catalogue is reloaded per run()
+// with the caller-supplied repoRoot. _internal back-compat readers see
+// the module-load-time values (main repo), but in-run calculations use
+// the worktree-aware values.
+let PROVIDER_CATALOGUE = [];
+let TOOL_CATALOGUE = [];
+let SKILL_CATALOGUE = [];
+let MEMORY_CATALOGUE = [];
 // P3+ cycle 8 prep (2026-06-15): platform adapters = ingress/egress for
 // external messaging platforms. P2 priority per V3_ROADMAP. V2 reserved
 // 'adapter-feishu' config key (core/config-resolver.js) but no adapter
 // was implemented; this catalogue entry closes the loop.
-const PLATFORM_CATALOGUE = _CATALOGUE.platforms;
+let PLATFORM_CATALOGUE = [];
 // P2b (2026-06-17): plugins catalogue = plugin names Darwin expects to have
 // available. Convention: plugin/<subdir>/<file>.js exports default with
 // {name, version, capabilities, init, ...} per IPlugin. Examples live in
@@ -72,7 +81,24 @@ const PLATFORM_CATALOGUE = _CATALOGUE.platforms;
 // P2g (2026-06-18): PLUGIN_CATALOGUE is now sourced from catalogue.js,
 // where `addToCatalogue('plugins', name)` is the API for Darwin's
 // self-evolution to grow the catalogue (commit-time, audit-logged).
-const PLUGIN_CATALOGUE = _CATALOGUE.plugins;
+//
+// W3-2 (2026-06-18): `let` so run() can re-load per repoRoot.
+let PLUGIN_CATALOGUE = [];
+
+/** Reload catalogues for a given repo root. Called by run() before
+ *  computing missing_* fields. */
+function loadCataloguesForRoot(repoRoot) {
+  const cat = loadCatalogueFromModule({ repoRoot });
+  PROVIDER_CATALOGUE = cat.providers;
+  TOOL_CATALOGUE = cat.tools;
+  SKILL_CATALOGUE = cat.skills;
+  MEMORY_CATALOGUE = cat.memory_backends;
+  PLATFORM_CATALOGUE = cat.platforms;
+  PLUGIN_CATALOGUE = cat.plugins;
+}
+
+// Initial population for back-compat (main repo).
+loadCataloguesForRoot(REPO_ROOT);
 
 // Scan roots. Absent dirs are reported as fully-missing, not throw.
 // P1-B2 (2026-06-15): memory_backends now scans BOTH `memory/` (top-level,
@@ -214,6 +240,10 @@ function listPluginStems(rootDir) {
  */
 export async function diagnose(opts = {}) {
   const root = opts.repoRoot || REPO_ROOT;
+  // W3-2 (2026-06-18): reload catalogues from the caller-supplied repoRoot
+  // so worktree overlays are honored. Falls back to the module-load-time
+  // values when root === REPO_ROOT (no overhead beyond a noop).
+  loadCataloguesForRoot(root);
   const scanRoots = opts.repoRoot
     ? {
         providers: path.join(root, 'provider'),
