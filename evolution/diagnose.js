@@ -154,9 +154,13 @@ function listMemoryBackendStems(rootDir, subDir) {
  *  plugins for Darwin introspection. Deduplicates. */
 function listPluginStems(rootDir) {
   const out = new Set();
-  // Root: `plugin/<name>.js` → stem = `<name>` (skip core 3)
+  // Root: `plugin/<name>.js` → stem = `<name>` (skip core infra + contracts).
+  // `registry`/`loader`/`interface` are the P2a/b/d loader contracts.
+  // `sandbox` is the P2e runtime enforcement helper — infrastructure,
+  // not a plugin. Skipping it keeps PLUGIN_CATALOGUE ⊆ listPluginStems
+  // honest (the diagnostic invariant from PR 9).
   for (const stem of listJsStems(rootDir)) {
-    if (['registry', 'loader', 'interface'].includes(stem)) {
+    if (['registry', 'loader', 'interface', 'sandbox'].includes(stem)) {
       continue;
     }
     out.add(stem);
