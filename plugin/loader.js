@@ -15,6 +15,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { IPlugin } from './interface.js';
+import { createSandbox } from './sandbox.js';
 import { ErrorHandler } from '../core/error-handler.js';
 import { ConfigResolver } from '../core/config-resolver.js';
 import { EVENTS } from '../core/events.js';
@@ -53,6 +54,15 @@ export function createPluginLoader(opts = {}) {
   const registry = opts.registry;
   const config = new ConfigResolver();
   const states = new Map();
+  // P2i (2026-06-18): optional runtime sandbox — when enableSandbox=true,
+  // activate the sandbox for the duration of any loaded plugin's runtime
+  // (between load() and unload()). Darwin's own runtime (self-evolve,
+  // apply.js, propose.js) doesn't load plugins, so this is safe — but
+  // bin/lib/plugin.js does NOT pass enableSandbox because it's CLI scope
+  // and a plugin add is a one-shot process where sandbox overhead is wasted.
+  const enableSandbox = opts.enableSandbox === true;
+  const sandbox = enableSandbox ? createSandbox({ pluginName: 'loader-active' }) : null;
+  const sandboxActiveNames = new Set();
 
   const stateOf = (n) => states.get(n) || S.UNLOADED;
   const setState = (n, s) => states.set(n, s);
@@ -126,6 +136,16 @@ export function createPluginLoader(opts = {}) {
       }
       registry.register(p);
       setState(p.name, S.LOADED);
+      // P2i: sandbox is process-global; activate once on first plugin load.
+      // Subsequent plugin loads while a sandbox is active are fine — the
+      // sandbox only protects the DENIED-method calls, not the plugin code
+      // path. (Darwin runtime itself doesn't run inside a sandbox because
+      // bin/lib/plugin.js doesn't pass enableSandbox; tests that DO pass
+      // enableSandbox must not run Darwin code that touches DENIED methods.)
+      if (sandbox && sandboxActiveNames.size === 0) {
+        sandbox.activate();
+      }
+      sandboxActiveNames.add(p.name);
       bus.emit(E.load.ok, { name: p.name, path: resolve(pluginPath) });
       return { name: p.name };
     });
@@ -195,6 +215,16 @@ export function createPluginLoader(opts = {}) {
 
   function unload(name) {
     return stage('unload', name, async () => {
+      // P2i: deactivate sandbox only after the LAST plugin is unloaded,
+      // so multiple plugins coexist safely. deactivate() restores the
+      // original methods so Darwin's own code (e.g. test teardown writing
+      // to /tmp) can run normally.
+      if (sandbox && sandboxActiveNames.has(name)) {
+        sandboxActiveNames.delete(name);
+        if (sandboxActiveNames.size === 0) {
+          sandbox.deactivate();
+        }
+      }
       const p = registry.get(name);
       if (p && typeof p.destroy === 'function') {
         try {
@@ -209,5 +239,15 @@ export function createPluginLoader(opts = {}) {
     });
   }
 
-  return { discover, load, init, enable, disable, unload, state: stateOf };
+  return {
+    discover,
+    load,
+    init,
+    enable,
+    disable,
+    unload,
+    state: stateOf,
+    // P2i: exposed for tests + future "list sandbox-active plugins" tooling.
+    _internal: { sandbox, sandboxActiveNames, enableSandbox },
+  };
 }
