@@ -247,7 +247,7 @@ export default {
 ### 跑测试
 
 ```bash
-npm test                 # 跑 332 tests
+npm test                 # 跑 974 tests (2026-06-18 snapshot)
 npm run lint             # ESLint
 npm run size-check       # 1000 行硬约束检查
 npm run verify           # 三合一

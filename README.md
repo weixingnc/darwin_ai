@@ -32,49 +32,49 @@ the catalogue, Darwin:
 7. **learn** — appends a `- <date>: <rule>` line to `evolution-rules.md`
 
 The whole pipeline is **mechanical — no LLM in the loop** (ADR-009). The
-human decides *what* to evolve; Darwin handles *how*.
+human decides _what_ to evolve; Darwin handles _how_.
 
 ## Status (2026-06-18)
 
 | Dimension | Catalogue | Coverage |
-|---|---|---|
-| Providers   | 6/6  | 100% |
-| Tools       | 9/9  | 100% |
-| Skills      | 6/6  | 100% |
-| Memory      | 3/3  | 100% |
-| Platforms   | 1/1  | 100% |
-| Plugins     | 4/4  | 100% |
+| --------- | --------- | -------- |
+| Providers | 6/6       | 100%     |
+| Tools     | 9/9       | 100%     |
+| Skills    | 6/6       | 100%     |
+| Memory    | 3/3       | 100%     |
+| Platforms | 1/1       | 100%     |
+| Plugins   | 5/5       | 100%     |
 
-- **Tests:** 927/927 pass · **Lint:** 0 errors · **Size:** 137 files, all < 1000 lines
-- **Coverage:** 90.30% statements / 80.11% branches / 95.21% functions
-- **HEAD:** `d7ba361` (32 cycles, P2 + W2/W3/W4/W5 series)
-- **Production plugins:** 4 — `logger` (example) · `audit` (P2c-2 + P2j) · `metrics` (W4-1) · `rate-limiter` (W5-1, first Darwin-self-grown plugin with real implementation)
+- **Tests:** 974/974 pass · **Lint:** 0 errors · **Size:** 138 files, all < 1000 lines
+- **Coverage:** 91.04% statements / 81.01% branches / 95.37% functions
+- **HEAD:** `b9f725b` (39 cycles, P2 + W2/W3/W4/W5/W6/W7 series)
+- **Production plugins:** 5 — `logger` (example) · `audit` (P2c-2 + P2j) · `metrics` (W4-1) · `rate-limiter` (W5-1, first Darwin-self-grown plugin with real implementation) · `llm-cache` (W6-2, LRU+TTL LLM response cache)
 
 ## Self-evolution roadmap (delivered in 2026-06)
 
-| Phase | SHA      | What |
-|-------|----------|------|
-| P2a   | `a9fd668` | Plugin CLI bug fix (`[object Object]` → `→ logger`) |
-| P2b   | `694f1ce` | `diagnose` scans plugins + `missing_plugins` field |
-| P2d   | `f6f3e6d` | Plugin manifest security (deny-by-default + 5 high-risk blocklist) |
-| P2c-1 | `1c78d86` | `evolution/propose` adds `plugins` template + manifest stub |
-| P2c-2 | `71e0ffb` | First production plugin: `plugin/audit.js` (in-memory) |
-| P2c-3 | `dbd4c9e` | Darwin end-to-end self-evolution via tmpdir worktree + subprocess |
-| P2e   | `52a645b` | Runtime sandbox via monkey-patch (9 high-risk methods gated) |
-| P2f   | `55d90a5` | `runSelfEvolve()` orchestrator (closed loop, `confirm:true` opt-in) |
-| P2g   | `f63c544` | Catalogue persistence + growth strategy (JSON overlay) |
-| P2i   | `0ade10b` | Plugin loader runtime sandbox integration (load/unload activate) |
-| P2j   | `1d4275e` | Audit plugin on-disk persistence (JSONL append + post-restart replay) |
-| P3a   | `8071460` | `self-evolution evolve` CLI sub-command (--confirm required) |
-| P3b   | `ff373ab` | c8 coverage baseline + npm scripts (`npm run coverage`) |
-| P3c   | `2d1b2ab` | `README.md` (this file) — first-pass entry point |
-| W2-1  | `5607a7e` | Fix `diagnose` filtering co-located `*.test.js` (pre-existing leak) |
-| W2-2  | `55e86ab` | husky v9 deprecation cleanup + `.git/config` `core.hooksPath` fix |
+| Phase | SHA       | What                                                                   |
+| ----- | --------- | ---------------------------------------------------------------------- |
+| P2a   | `a9fd668` | Plugin CLI bug fix (`[object Object]` → `→ logger`)                    |
+| P2b   | `694f1ce` | `diagnose` scans plugins + `missing_plugins` field                     |
+| P2d   | `f6f3e6d` | Plugin manifest security (deny-by-default + 5 high-risk blocklist)     |
+| P2c-1 | `1c78d86` | `evolution/propose` adds `plugins` template + manifest stub            |
+| P2c-2 | `71e0ffb` | First production plugin: `plugin/audit.js` (in-memory)                 |
+| P2c-3 | `dbd4c9e` | Darwin end-to-end self-evolution via tmpdir worktree + subprocess      |
+| P2e   | `52a645b` | Runtime sandbox via monkey-patch (9 high-risk methods gated)           |
+| P2f   | `55d90a5` | `runSelfEvolve()` orchestrator (closed loop, `confirm:true` opt-in)    |
+| P2g   | `f63c544` | Catalogue persistence + growth strategy (JSON overlay)                 |
+| P2i   | `0ade10b` | Plugin loader runtime sandbox integration (load/unload activate)       |
+| P2j   | `1d4275e` | Audit plugin on-disk persistence (JSONL append + post-restart replay)  |
+| P3a   | `8071460` | `self-evolution evolve` CLI sub-command (--confirm required)           |
+| P3b   | `ff373ab` | c8 coverage baseline + npm scripts (`npm run coverage`)                |
+| P3c   | `2d1b2ab` | `README.md` (this file) — first-pass entry point                       |
+| W2-1  | `5607a7e` | Fix `diagnose` filtering co-located `*.test.js` (pre-existing leak)    |
+| W2-2  | `55e86ab` | husky v9 deprecation cleanup + `.git/config` `core.hooksPath` fix      |
 | W3-2  | `d6f7d1a` | CLI end-to-end test (closes the P3a loop) + per-repoRoot catalogue fix |
-| W4-1  | `cc1931e` | Third production plugin: `plugin/metrics.js` (observability) |
-| W4-2  | `459c12d` | Darwin grows `rate-limiter` end-to-end (PM-curated growth target) |
-| W5-1  | `5648477` | `plugin/rate-limiter.js` real implementation (sliding window) |
-| W5-3  | `d7ba361` | W4-2 e2e regression + catalogue 4→5 status sync |
+| W4-1  | `cc1931e` | Third production plugin: `plugin/metrics.js` (observability)           |
+| W4-2  | `459c12d` | Darwin grows `rate-limiter` end-to-end (PM-curated growth target)      |
+| W5-1  | `5648477` | `plugin/rate-limiter.js` real implementation (sliding window)          |
+| W5-3  | `d7ba361` | W4-2 e2e regression + catalogue 4→5 status sync                        |
 
 Each row is one commit. See `docs/V3_ROADMAP.md` for the long-form design notes.
 
@@ -117,7 +117,7 @@ See `docs/ADR/` for the design decisions that shaped this layout.
 ## How to use Darwin
 
 - **First time?** Read [`docs/USAGE.md`](docs/USAGE.md) — 5-minute quick start
-  + LLM provider setup + first self-evolve cycle walkthrough.
+  - LLM provider setup + first self-evolve cycle walkthrough.
 - **Want to design a plugin?** Read [`docs/V3_ROADMAP.md`](docs/V3_ROADMAP.md)
   P2 series notes + `plugin/__example__/logger.js` (24-line minimal plugin).
 - **Want to contribute a catalogue item?** Run `npm run diagnose` to see
