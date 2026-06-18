@@ -64,6 +64,19 @@ function makeWorktree() {
   const driverDst = path.join(root, 'tests/evolution/p2c3-driver.mjs');
   fs.mkdirSync(path.dirname(driverDst), { recursive: true });
   fs.writeFileSync(driverDst, driverSrc);
+  // W6-2: copy uncommitted plugin/ files from V2_ROOT into the
+  // worktree so the worktree's plugin/ matches the working tree.
+  // Without this, plugin files added in W6+ working tree but not
+  // yet in HEAD appear "missing" to diagnose in the worktree.
+  const srcPlugin = path.join(V2_ROOT, 'plugin');
+  const dstPlugin = path.join(root, 'plugin');
+  for (const f of fs.readdirSync(srcPlugin)) {
+    const src = path.join(srcPlugin, f);
+    const dst = path.join(dstPlugin, f);
+    if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+      fs.copyFileSync(src, dst);
+    }
+  }
   return root;
 }
 
@@ -101,28 +114,26 @@ function cleanupWorktree(worktree) {
   *
   * Returns { catalogue, previousCatalogue } so tests can assert the diff.
   */
- function overrideCatalogue(worktree, newCatalogue) {
-   const filePath = path.join(worktree, 'evolution/catalogue.json');
-   const before = fs.existsSync(filePath)
-     ? fs.readFileSync(filePath, 'utf8')
-     : '{}';
-   const parsed = JSON.parse(before || '{}');
-   // Compute the previous catalogue (whatever was committed before this test
-   // ran; could be empty `{}` if no overlay was committed yet).
-   const previous = parsed.plugins || [];
-   parsed.plugins = newCatalogue;
-   fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
-   childProcess.execFileSync('git', ['add', 'evolution/catalogue.json'], {
-     cwd: worktree,
-     stdio: 'pipe',
-   });
-   childProcess.execFileSync(
-     'git',
-     ['commit', '--quiet', '-m', `p2c3: extend catalogue with ${MISSING_PLUGIN}`, '--no-verify'],
-     { cwd: worktree, stdio: 'pipe' },
-   );
-   return { previousCatalogue: previous, newCatalogue };
- }
+function overrideCatalogue(worktree, newCatalogue) {
+  const filePath = path.join(worktree, 'evolution/catalogue.json');
+  const before = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '{}';
+  const parsed = JSON.parse(before || '{}');
+  // Compute the previous catalogue (whatever was committed before this test
+  // ran; could be empty `{}` if no overlay was committed yet).
+  const previous = parsed.plugins || [];
+  parsed.plugins = newCatalogue;
+  fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'evolution/catalogue.json'], {
+    cwd: worktree,
+    stdio: 'pipe',
+  });
+  childProcess.execFileSync(
+    'git',
+    ['commit', '--quiet', '-m', `p2c3: extend catalogue with ${MISSING_PLUGIN}`, '--no-verify'],
+    { cwd: worktree, stdio: 'pipe' },
+  );
+  return { previousCatalogue: previous, newCatalogue };
+}
 
 describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
   let worktree;
@@ -222,7 +233,10 @@ describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
     // (logger + audit + metrics + rate-limiter), not 3. The
     // MISSING_PLUGIN itself was just grown, so total = 5.
     // (catalogue 4 → 5)
-    assert.equal(report.current.plugins.length, 5);
+    // W6-2 (2026-06-18): llm-cache joined the baseline — 5 in
+    // DEFAULTS, plus the MISSING_PLUGIN grown in this test, so
+    // total = 6.
+    assert.equal(report.current.plugins.length, 6);
   });
 
   test('git tag is reachable in the worktree + matches the rollback anchor for the apply', () => {

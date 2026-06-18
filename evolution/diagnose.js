@@ -184,12 +184,22 @@ function listMemoryBackendStems(rootDir, subDir) {
 function listPluginStems(rootDir) {
   const out = new Set();
   // Root: `plugin/<name>.js` → stem = `<name>` (skip core infra + contracts).
-  // `registry`/`loader`/`interface` are the P2a/b/d loader contracts.
+  // `registry`/`loader`/interface` are the P2a/b/d loader contracts.
   // `sandbox` is the P2e runtime enforcement helper — infrastructure,
   // not a plugin. Skipping it keeps PLUGIN_CATALOGUE ⊆ listPluginStems
   // honest (the diagnostic invariant from PR 9).
+  // W6-2: also skip `*-key.js` helper files. W6-2 split
+  // plugin/llm-cache.js into main + llm-cache-key.js (key
+  // construction utility). Without this filter, llm-cache-key
+  // shows up as an "extra" plugin file, inflating the surface and
+  // making the catalogue appear open. Same W2-1 pattern that
+  // filters `*.test.js`. Future helpers (e.g. `*-format.js`,
+  // `*-parser.js`) follow the same convention.
   for (const stem of listJsStems(rootDir)) {
     if (['registry', 'loader', 'interface', 'sandbox'].includes(stem)) {
+      continue;
+    }
+    if (stem.endsWith('-key')) {
       continue;
     }
     out.add(stem);

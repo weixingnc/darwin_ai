@@ -224,6 +224,27 @@ describe('AnthropicProvider — stream()', () => {
     assert.ok(out2.some((e) => e.type === 'error'));
     assert.ok(sErr.length >= 1);
   });
+
+  // W6-6: HTTP error path for stream() — exercises
+  // _openStreamResponse's body-read + status code path
+  // (lines 226-231, 247-248 in provider/anthropic.js).
+  test('stream() HTTP 503 surfaces status + body in error', async () => {
+    const { p } = mk();
+    install(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: { message: 'overloaded' } }),
+      text: async () => JSON.stringify({ error: { message: 'overloaded' } }),
+    }));
+    const out = [];
+    for await (const e of p.stream([{ role: 'user', content: 'q' }])) {
+      out.push(e);
+    }
+    const errEv = out.find((e) => e.type === 'error');
+    assert.ok(errEv, 'stream should yield an error event');
+    assert.equal(errEv.error.status, 503);
+    assert.match(errEv.error.message, /overloaded|503/);
+  });
 });
 
 describe('AnthropicProvider — listModels/embed + _wrap + config (A-4) + hygiene', () => {
