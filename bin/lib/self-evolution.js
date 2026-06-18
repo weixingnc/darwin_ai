@@ -1,7 +1,7 @@
 /**
  * Darwin CLI — `darwin self-evolution <sub> [...]` (P1 closed-loop demo).
  *
- * 7 sub-sub-commands, all JSON output to stdout (machine-parseable for e2e):
+ * 8 sub-sub-commands, all JSON output to stdout (machine-parseable for e2e):
  *   diagnose   — scan current capability surface (REAL, evolution/diagnose.js)
  *   propose    — generate change proposals (REAL, evolution/propose.js)
  *   apply      — apply a proposal (REAL, evolution/apply.js) — ADR-006 approval gate
@@ -9,12 +9,16 @@
  *   rollback   — git reset --hard to pre-apply tag (REAL, evolution/rollback.js)
  *   audit      — write audit log entry (REAL, evolution/audit.js)
  *   learn      — append rule to evolution-rules.md (REAL, evolution/learn.js)
+ *   evolve     — run one self-evolve cycle (REAL, evolution/self-evolve.js)
+ *                P3a (2026-06-18): CLI exposure for the P2f orchestrator.
+ *                Requires --confirm:true to actually run (P2f design #1).
  *
  * Args:
  *   --auto-approve    skip the must-approve gate (e2e only — ADR-006 mocks laowang)
  *   --cwd <path>      working directory (default repo root; e2e passes tmpdir)
  *   --proposals-dir   override proposals dir (e2e)
  *   --runners         e2e: comma-separated mock runner names (mock-test-fail, etc)
+ *   --confirm         P3a: required for `evolve` sub-command (mirror of opts.confirm:true)
  *
  * LLM gate (ADR-009): this dispatcher is mechanical, no LLM.
  */
@@ -25,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 import { selfEvolution } from '../../core/self-evolution.js';
 import { diagnose as diagnoseImpl } from '../../evolution/diagnose.js';
 import { propose as proposeImpl } from '../../evolution/propose.js';
+import { runSelfEvolve } from '../../evolution/self-evolve.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -39,6 +44,12 @@ function parseFlags(rest) {
     const a = rest[i];
     if (a === '--auto-approve') {
       flags.autoApprove = true;
+    } else if (a === '--confirm') {
+      // P3a (2026-06-18): mirror of `runSelfEvolve({confirm:true})` — the
+      // opt-in safety pattern. `--confirm` on its own (no value) is treated
+      // as `--confirm true`. We don't accept `--confirm=false` because
+      // the safety contract is explicit opt-in only.
+      flags.confirm = true;
     } else if (a === '--cwd') {
       flags.cwd = rest[++i];
     } else if (a === '--proposals-dir') {
@@ -264,6 +275,24 @@ async function handleLearn(positional, flags) {
   return emit(result);
 }
 
+// P3a (2026-06-18): CLI exposure for the P2f self-evolve orchestrator.
+// Forwarding only — runSelfEvolve owns the safety invariants (confirm
+// required, sandbox not activated, verify-then-rollback, one plugin
+// per cycle). This wrapper just bridges argv → opts.
+async function handleEvolve(_positional, flags) {
+  if (flags.confirm !== true) {
+    throw new Error(
+      'evolve: --confirm is required. Self-evolution is opt-in to prevent ' +
+        'accidental triggers. See P2f design notes in evolution/self-evolve.js.',
+    );
+  }
+  const result = await runSelfEvolve({
+    confirm: true,
+    cwd: flags.cwd || REPO_ROOT,
+  });
+  return emit(result);
+}
+
 // ─── Public dispatcher (low-complexity switch) ───────────────────────
 
 const HANDLERS = {
@@ -274,6 +303,7 @@ const HANDLERS = {
   rollback: handleRollback,
   audit: handleAudit,
   learn: handleLearn,
+  evolve: handleEvolve,
 };
 
 /** dispatcher entry. Called by bin/darwin as selfEvolutionDispatch(sub, rest). */
