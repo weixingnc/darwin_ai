@@ -27,7 +27,7 @@ function resetLimiter(config = {}) {
 test('W5-1: manifest validates (P2d contract, in-memory only)', () => {
   assert.equal(rateLimiter.name, 'rate-limiter');
   // W5-1: real impl — supersedes P2c-1 stub from W4-2.
-  assert.equal(rateLimiter.version, '0.1.0');
+  assert.equal(rateLimiter.version, '0.2.0');
   assert.deepEqual(rateLimiter.capabilities, ['tool']);
   // In-memory only — no fs:append needed.
   assert.deepEqual(rateLimiter.permissions, ['bus:on', 'log:info']);
@@ -80,10 +80,7 @@ test('W5-1: acquire() async blocks until slot available', async () => {
   const start = Date.now();
   await rateLimiter.acquire();
   const elapsed = Date.now() - start;
-  assert.ok(
-    elapsed >= 40 && elapsed < 500,
-    `acquire should block ~50ms, took ${elapsed}ms`,
-  );
+  assert.ok(elapsed >= 40 && elapsed < 500, `acquire should block ~50ms, took ${elapsed}ms`);
   assert.equal(rateLimiter.getStats().total_acquired, 3);
   assert.ok(rateLimiter.getStats().total_waited >= 1, 'wait counter incremented');
 });
@@ -168,10 +165,7 @@ test('W5-1: getStats() returns ISO timestamp on last_acquire_at', () => {
   resetLimiter({ max_calls: 5, window_ms: 1000 });
   rateLimiter.tryAcquire();
   const stats = rateLimiter.getStats();
-  assert.ok(
-    stats.last_acquire_at !== null,
-    'last_acquire_at set after acquire',
-  );
+  assert.ok(stats.last_acquire_at !== null, 'last_acquire_at set after acquire');
   // ISO 8601 format check.
   assert.match(stats.last_acquire_at, /^\d{4}-\d{2}-\d{2}T/);
 });

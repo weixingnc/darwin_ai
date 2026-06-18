@@ -9,6 +9,7 @@ import { createAnthropicProtocol } from './anthropic-protocol.js';
 import { createAnthropicProtocolStream } from './anthropic-protocol-stream.js';
 import { ConfigResolver } from '../core/config-resolver.js';
 import { EVENTS } from '../core/events.js';
+import rateLimiter from '../plugin/rate-limiter.js';
 
 const VERSION = '1.0.0';
 const CHAT_PATH = '/v1/messages';
@@ -57,23 +58,40 @@ const fail = (e, op) => {
 const doPost = (url, body, k, opts, ms) => {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
-  return fetch(url, { method: 'POST', headers: hdr(k, opts), body: JSON.stringify(body), signal: c.signal }).finally(() => clearTimeout(t));
+  return fetch(url, {
+    method: 'POST',
+    headers: hdr(k, opts),
+    body: JSON.stringify(body),
+    signal: c.signal,
+  }).finally(() => clearTimeout(t));
 };
-const normErr = (e) => ({ message: (e && e.message) || String(e), name: e && e.name, status: e && e.status });
+const normErr = (e) => ({
+  message: (e && e.message) || String(e),
+  name: e && e.name,
+  status: e && e.status,
+});
 
 export class AnthropicProvider extends ProviderBase {
   constructor(opts = {}) {
     if (!opts || !opts.eventBus) {
       throw new TypeError('[anthropic] constructor: opts.eventBus is required');
     }
-    super({ name: 'anthropic', capabilities: ['chat', 'stream', 'tool-call', 'listModels'], eventBus: opts.eventBus });
+    super({
+      name: 'anthropic',
+      capabilities: ['chat', 'stream', 'tool-call', 'listModels'],
+      eventBus: opts.eventBus,
+    });
     this.version = VERSION;
     this._baseUrl = strip(opts.baseUrl);
     this._apiKey = opts.apiKey || '';
     this._defaultModel = opts.defaultModel || '';
-    this._timeoutMs = typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0 ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
+    this._timeoutMs =
+      typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0
+        ? opts.timeoutMs
+        : DEFAULT_TIMEOUT_MS;
     this._protocol = opts.protocol || createAnthropicProtocol({ eventBus: opts.eventBus });
-    this._streamProtocol = opts.streamProtocol || createAnthropicProtocolStream({ eventBus: opts.eventBus });
+    this._streamProtocol =
+      opts.streamProtocol || createAnthropicProtocolStream({ eventBus: opts.eventBus });
   }
 
   /** Per-spec init entry: wires eventBus + config without touching the registry. */
@@ -95,6 +113,11 @@ export class AnthropicProvider extends ProviderBase {
   }
 
   async _doChat(messages, options = {}) {
+    // W6-1: rate-limit gate. Per-scope 'anthropic' bucket — see
+    // plugin/rate-limiter.js v0.2.0. If the bucket is full, throw
+    // a rate-limit error so the host (tool-loop / agent / test)
+    // can decide whether to back off, retry, or surface.
+    this._enforceRateLimit('_doChat');
     const opts = options || {};
     const model = (typeof opts.model === 'string' && opts.model) || this._defaultModel;
     const be = await this._protocol.buildRequest(messages, opts, model);
@@ -111,7 +134,12 @@ export class AnthropicProvider extends ProviderBase {
     if (!parsed.ok) {
       fail(parsed.error, 'parseResponse');
     }
-    return { content: parsed.value.content, toolCalls: parsed.value.tool_calls, usage: parsed.value.usage, raw };
+    return {
+      content: parsed.value.content,
+      toolCalls: parsed.value.tool_calls,
+      usage: parsed.value.usage,
+      raw,
+    };
   }
 
   /** A-3: delegates to chat() — provider does NOT re-implement wire format. */
@@ -119,9 +147,44 @@ export class AnthropicProvider extends ProviderBase {
     return this.chat(messages, options);
   }
 
+  /**
+   * W6-1: rate-limit gate. Throws a structured error when the
+   * 'anthropic' bucket is full. Per-scope bucket — see
+   * plugin/rate-limiter.js v0.2.0. The host (tool-loop, test) can
+   * inspect err.code === 'RATE_LIMITED' to decide retry strategy.
+   *
+   * Falls open when the rate-limiter is not initialised (recording
+   * is falsy before init() is called). This matches the plugin's
+   * disable() behaviour: "let everything through when the guard
+   * is down".
+   */
+  _enforceRateLimit(op) {
+    if (!rateLimiter._recording) {
+      // Plugin not yet initialised by the host — fall open.
+      return;
+    }
+    if (rateLimiter.tryAcquireFor('anthropic')) {
+      return;
+    }
+    const stats = rateLimiter.getStatsFor('anthropic');
+    const e = new Error(
+      `[anthropic] rate-limited on ${op} (${stats.current_rate}/${stats.max_calls} ` +
+        `in ${stats.window_ms}ms window — back off and retry)`,
+    );
+    e.code = 'RATE_LIMITED';
+    e.scope = 'anthropic';
+    e.op = op;
+    e.stats = stats;
+    throw e;
+  }
+
   /** Stream entry: PR 14a2. Async iterable of accumulated snapshots.
    *  ProviderBase._wrap resolves to a single entry, so emit manually. */
   async *stream(messages, options = {}) {
+    // W6-1: rate-limit gate for streaming endpoints. Streaming
+    // counts as one slot — multiple chunks within the same stream
+    // are not separately rate-limited (the call IS the slot).
+    this._enforceRateLimit('stream');
     const opts = options || {};
     const ctx = { provider: this.name, phase: 'stream', traceId: randomUUID() };
     this._bus.emit(EVENTS.PROVIDER_CALL_BEFORE, ctx);
@@ -150,7 +213,13 @@ export class AnthropicProvider extends ProviderBase {
     if (!be.ok) {
       throw new Error(`buildStreamRequest failed: ${be.error.message}`);
     }
-    const res = await doPost(`${this._baseUrl}${CHAT_PATH}`, be.value, this._apiKey, opts, this._timeoutMs);
+    const res = await doPost(
+      `${this._baseUrl}${CHAT_PATH}`,
+      be.value,
+      this._apiKey,
+      opts,
+      this._timeoutMs,
+    );
     if (res.ok) {
       return res;
     }

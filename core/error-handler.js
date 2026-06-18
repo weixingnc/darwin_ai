@@ -10,7 +10,17 @@ const stamp = () => Date.now();
 
 function norm(err) {
   if (err instanceof Error) {
-    return { message: err.message, name: err.name, stack: err.stack, raw: err };
+    const out = { message: err.message, name: err.name, stack: err.stack, raw: err };
+    // Preserve any extra fields the thrower attached (e.g. W6-1
+    // RATE_LIMITED errors carry `code`, `scope`, `op`, `stats`).
+    // Without this, structured fields are silently dropped at
+    // the boundary — the host can no longer inspect err.code.
+    for (const k of Object.keys(err)) {
+      if (k !== 'message' && k !== 'name' && k !== 'stack' && k !== 'cause') {
+        out[k] = err[k];
+      }
+    }
+    return out;
   }
   if (err === null || err === undefined) {
     return { message: 'unknown (null/undefined)', name: 'UnknownError', stack: '', raw: err };
