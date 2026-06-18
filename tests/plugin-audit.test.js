@@ -34,9 +34,13 @@ const APPLY = EVENTS.EVOLUTION_APPLY_AFTER;
 describe('audit plugin — manifest (P2d contract)', () => {
   test('has name, version, capabilities, permissions in expected shape', () => {
     assert.equal(audit.name, 'audit');
-    assert.equal(audit.version, '0.1.0');
+    // P2j (2026-06-18): version bumped 0.1.0 → 0.2.0 to reflect
+    // the addition of on-disk persistence (fs:append permission,
+    // getLogPath(), readPersisted()). The P2d contract test still
+    // asserts the manifest shape, just the new version string.
+    assert.equal(audit.version, '0.2.0');
     assert.deepEqual(audit.capabilities, ['tool']);
-    assert.deepEqual(audit.permissions, ['bus:on', 'log:info']);
+    assert.deepEqual(audit.permissions, ['bus:on', 'log:info', 'fs:append']);
   });
 
   test('passes IPlugin.validate (P2d whitelist + not in PLUGIN_DENIED)', () => {

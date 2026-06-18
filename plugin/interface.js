@@ -44,6 +44,14 @@ export const PLUGIN_PERMISSIONS = Object.freeze([
   'log:info', // console.log
   'log:warn', // console.warn
   'log:error', // console.error
+  // P2j (2026-06-18): append-only file write. Distinct from fs:write
+  // (which is in PLUGIN_DENIED) because `fs:append` cannot overwrite,
+  // truncate, or delete — only fs.appendFileSync. Audit-style plugins
+  // (e.g. plugin/audit.js) use it to persist evolution events to
+  // <baseDir>/audit.jsonl. Granted narrowly so the static manifest
+  // check accepts audit; runtime sandbox (P2e) still gates any actual
+  // fs.writeFile / fs.appendFile call if enableSandbox=true.
+  'fs:append',
 ]);
 
 // P2d (2026-06-18): explicit blocklist. If a plugin's permissions intersect

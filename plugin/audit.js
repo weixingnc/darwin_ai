@@ -1,45 +1,76 @@
 /**
- * audit — Darwin self-evolution audit plugin (P2c-2, 2026-06-18).
+ * audit — Darwin self-evolution audit plugin (P2c-2 + P2j, 2026-06-18).
  *
  * Production plugin (NOT the P2c-1 manifest stub): subscribes to Darwin's
- * evolution events and records them in an in-memory log. P2c-2 is the
- * first non-example production plugin in `plugin/` — the "装新器官" half
- * of Darwin's self-evolution closed loop. The flow:
+ * evolution events and persists them. P2c-2 was the first non-example
+ * production plugin in `plugin/` — the "装新器官" half of Darwin's
+ * self-evolution closed loop. P2j (2026-06-18) upgrades the persistence
+ * layer from in-memory to append-only JSONL on disk:
  *
  *   Darwin (diagnose → propose → apply) → emits evolution:* events
  *                                          ↓
  *                                  audit plugin records them
  *                                          ↓
- *                            host calls audit.getEvents() to inspect
+ *                            append to <baseDir>/audit.jsonl
+ *                                          ↓
+ *                       host calls audit.getEvents() for in-memory
+ *                       snapshot, or reads audit.jsonl directly for
+ *                       post-restart replay.
  *
  * Manifest (P2d contract, validated by IPlugin.validate at load time):
  *   - name         'audit'             (lowercase, non-empty)
- *   - version      '0.1.0'             (semver-ish)
+ *   - version      '0.2.0'             (P2j: bumped from 0.1.0)
  *   - capabilities ['tool']            (PLUGIN_CAPABILITIES category)
- *   - permissions  ['bus:on', 'log:info']  (PLUGIN_PERMISSIONS whitelist,
- *                                           ∩ PLUGIN_DENIED = ∅)
+ *   - permissions  ['bus:on', 'log:info', 'fs:append']
+ *                                       (P2j: 'fs:append' added — audit
+ *                                        needs to append entries to
+ *                                        audit.jsonl. fs:append is in
+ *                                        PLUGIN_PERMISSIONS (not in
+ *                                        PLUGIN_DENIED) because it's
+ *                                        append-only, cannot overwrite
+ *                                        or delete. Static manifest
+ *                                        check accepts; runtime sandbox
+ *                                        (P2e) only blocks if
+ *                                        enableSandbox=true on loader.)
  *
  * Lifecycle:
  *   init(ctx)   subscribe to evolution:propose:after + evolution:apply:after
- *               via ctx.eventBus; reset in-memory log; recording = true
+ *               via ctx.eventBus; reset in-memory log; bind baseDir
+ *               from ctx.config (defaults to <cwd>/memory/audit);
+ *               recording = true
  *   enable()    recording = true (default after init)
  *   disable()   recording = false (events keep firing but are dropped)
  *   destroy()   unsubscribe both topics, clear in-memory log
  *
  * Public API (in addition to IPlugin lifecycle):
- *   getEvents()  → Array<{topic, payload, recordedAt}> in insertion order
+ *   getEvents()           → Array<{topic, payload, recordedAt}> (in-memory)
+ *   getLogPath()          → string (absolute path to audit.jsonl)
+ *   readPersisted()       → Array<{topic, payload, recordedAt}> from disk
+ *                           (post-restart replay — independent of in-memory)
  */
+
+import fs from 'node:fs';
+import path from 'node:path';
 
 export default {
   name: 'audit',
-  version: '0.1.0',
+  version: '0.2.0',
   capabilities: ['tool'],
-  permissions: ['bus:on', 'log:info'],
+  permissions: ['bus:on', 'log:info', 'fs:append'],
 
   init(ctx) {
     this._bus = ctx.eventBus;
     this._events = [];
     this._recording = true;
+    // P2j: persist to <baseDir>/audit.jsonl. ctx.config may be undefined
+    // (e.g. plugin loaded via discovery without config wiring) — fall back
+    // to env DARWIN_AUDIT_DIR or './memory/audit'.
+    const configDir = ctx.config?.baseDir || process.env.DARWIN_AUDIT_DIR;
+    const baseDir =
+      configDir ||
+      path.join(process.cwd(), 'memory', 'audit');
+    this._baseDir = baseDir;
+    this._logPath = path.join(baseDir, 'audit.jsonl');
     this._handlers = {
       'evolution:propose:after': (payload) => this._record('evolution:propose:after', payload),
       'evolution:apply:after': (payload) => this._record('evolution:apply:after', payload),
@@ -69,30 +100,68 @@ export default {
   },
 
   /**
-   * P2c-2 (2026-06-18): return the in-memory log of evolution events
-   * recorded since init(). Each entry is {topic, payload, recordedAt}:
-   *   - topic       original event topic (e.g. 'evolution:propose:after')
-   *   - payload     event payload as emitted on EventBus
-   *   - recordedAt  ISO timestamp of when audit recorded it
-   *
+   * P2c-2: return the in-memory log of evolution events recorded since
+   * init(). Each entry is {topic, payload, recordedAt}.
    * Returns a shallow copy so callers can't mutate internal state.
-   * Returns [] before init() or after destroy().
    */
   getEvents() {
     return Array.isArray(this._events) ? [...this._events] : [];
   },
 
-  // Internal: append a recorded event when _recording is true. Arrow
-  // function in init() captures plugin as `this`, so this stays bound
-  // even when the event handler runs after a disable()/enable() cycle.
+  /** P2j: absolute path to the persisted audit.jsonl. */
+  getLogPath() {
+    return this._logPath;
+  },
+
+  /**
+   * P2j: read the persisted audit log from disk (post-restart replay).
+   * Independent of the in-memory log — survives process restarts.
+   * Returns [] if the file doesn't exist yet.
+   * Skips malformed lines (logs them to stderr but doesn't throw).
+   */
+  readPersisted() {
+    let raw;
+    try {
+      raw = fs.readFileSync(this._logPath, 'utf8');
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) {
+        continue;
+      }
+      try {
+        out.push(JSON.parse(line));
+      } catch {
+        process.stderr.write(`[audit] malformed line skipped: ${line.slice(0, 80)}\n`);
+      }
+    }
+    return out;
+  },
+
+  // Internal: append a recorded event to in-memory log AND to disk.
   _record(topic, payload) {
     if (!this._recording) {
       return;
     }
-    this._events.push({
+    const entry = {
       topic,
       payload,
       recordedAt: new Date().toISOString(),
-    });
+    };
+    this._events.push(entry);
+    // P2j: persist synchronously to disk. Use appendFileSync (no read
+    // first) — survives process kill (the file is closed after each
+    // append). For high-volume events this would batch, but Darwin's
+    // evolution events are infrequent (propose + apply per cycle).
+    try {
+      fs.mkdirSync(this._baseDir, { recursive: true });
+      fs.appendFileSync(this._logPath, JSON.stringify(entry) + '\n', 'utf8');
+    } catch (err) {
+      // Don't crash the plugin if disk write fails — log to stderr
+      // so the in-memory snapshot is still useful.
+      process.stderr.write(`[audit] persist failed: ${err.message}\n`);
+    }
   },
 };
