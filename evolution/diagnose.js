@@ -72,7 +72,14 @@ const PLATFORM_CATALOGUE = ['feishu'].map((s) => s.toLowerCase());
 // filesystem) so Darwin can introspect them via diagnose without
 // importing. Real plugin catalogue (production plugins) lives in
 // `plugin/` root or `plugin/<name>/index.js` style (future).
-const PLUGIN_CATALOGUE = ['logger'].map((s) => s.toLowerCase());
+//
+// P2c-2 (2026-06-18): extended with 'audit' — first non-example production
+// plugin in plugin/. audit subscribes to evolution:propose:after +
+// evolution:apply:after and records them in an in-memory log. PLUGIN_CATALOGUE
+// growth 1→2 marks Darwin's first real "装新器官" — Darwin decides to install
+// a plugin, then verifies the install via re-diagnose. Subsequent cycles
+// can extend this list to grow the production plugin surface.
+const PLUGIN_CATALOGUE = ['logger', 'audit'].map((s) => s.toLowerCase());
 
 // Scan roots. Absent dirs are reported as fully-missing, not throw.
 // P1-B2 (2026-06-15): memory_backends now scans BOTH `memory/` (top-level,
