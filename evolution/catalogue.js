@@ -44,6 +44,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // MODULE_REPO_ROOT is the hardcoded repo root for this module (the Darwin
@@ -190,18 +191,30 @@ export function loadCatalogue(opts = {}) {
  * Persist an ADD to the catalogue overlay file. Audit-logged.
  * Adding an item already present is a no-op (returns false).
  *
+ * T6 (Codex P1-3, 2026-06-18): before the audit entry is appended,
+ * drop a `catalogue-pre-<timestamp>-<name>` git tag at the current
+ * commit in `opts.cwd` (default MODULE_REPO_ROOT). Tag creation is
+ * BEST-EFFORT: if cwd is not a git repo / no HEAD / `git tag`
+ * returns non-zero → warn and set `tag=null` (the audit entry still
+ * records the add). The tag name is exposed to callers via the
+ * `tag` field on the audit entry; if the add was skipped (idempotent
+ * no-op), no tag is created and no audit entry is written (existing
+ * T4 behaviour).
+ *
  * @param {string} category
  * @param {string} name
  * @param {object} [opts]
  * @param {string} [opts.file] override overlay file path (tests)
  * @param {string} [opts.logFile] override audit log path (tests)
  * @param {string} [opts.reason] recorded in audit log
+ * @param {string} [opts.cwd] working dir for the pre-tag (default MODULE_REPO_ROOT)
  * @returns {boolean} true if added, false if already present
  */
 export function addToCatalogue(category, name, opts = {}) {
   const file = opts.file || DEFAULT_FILE;
   const logFile = opts.logFile || LOG_FILE;
   const reason = opts.reason || 'unspecified';
+  const tagCwd = opts.cwd || MODULE_REPO_ROOT;
   const cat = String(category || '').toLowerCase();
   const nm = String(name || '').toLowerCase();
   if (!DEFAULTS[cat]) {
@@ -216,6 +229,10 @@ export function addToCatalogue(category, name, opts = {}) {
   if (list.map((s) => String(s).toLowerCase()).includes(nm)) {
     return false; // already present
   }
+  // T6: best-effort pre-tag at the current commit. Tag is recorded
+  // on the audit entry; on any git failure we log a warn and proceed
+  // with tag=null (the catalogue add still succeeds).
+  const tag = tryTagCataloguePre(tagCwd, nm);
   list.push(nm);
   overlay[cat] = list;
   fs.writeFileSync(file, JSON.stringify(overlay, null, 2) + '\n', 'utf8');
@@ -226,6 +243,7 @@ export function addToCatalogue(category, name, opts = {}) {
       name: nm,
       reason,
       file,
+      tag,
     },
     logFile,
   );
@@ -297,6 +315,57 @@ function appendAudit(entry, logFile) {
   fs.appendFileSync(target, JSON.stringify(full) + '\n', 'utf8');
 }
 
+/**
+ * T6 (Codex P1-3, 2026-06-18): drop a `catalogue-pre-<ts>-<name>`
+ * git tag at the current commit in `cwd`, as a rollback anchor for
+ * catalogue overlay mutations. Best-effort: on any failure
+ * (cwd is not a git repo, no HEAD, `git tag` returns non-zero, etc.)
+ * we log a warn and return null. The caller records the tag (or null)
+ * on the audit entry.
+ *
+ * Design notes:
+ *   - We use execFileSync (not execSync) per ADR-007 F-6 SOP
+ *     (no shell, no injection surface from `name` or `cwd`).
+ *   - The tag is sync (caller is sync; no `await` here).
+ *   - Uniqueness: Date.now() ms + `process.hrtime.bigint()` (hex
+ *     tail) defends against rapid-fire calls colliding on the same
+ *     millisecond.
+ *   - The tag is created BEFORE the overlay file is written so a
+ *     post-mortem `git reset --hard <tag>` undoes the catalogue
+ *     mutation too.
+ *
+ * @param {string} cwd working directory for the tag (must be a git repo)
+ * @param {string} name the catalogue item being added (used in tag name)
+ * @returns {string|null} tag name on success, null on any failure
+ */
+export function tryTagCataloguePre(cwd, name) {
+  if (typeof cwd !== 'string' || !cwd) {
+    // eslint-disable-next-line no-console
+    console.warn('[catalogue] tryTagCataloguePre: cwd required, skipping tag');
+    return null;
+  }
+  const safeName =
+    String(name || 'item')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'item';
+  const hrt = process.hrtime.bigint().toString(16);
+  const tagName = `catalogue-pre-${Date.now()}-${hrt}-${safeName}`;
+  try {
+    // Create the tag. execFileSync (no shell) is safe even though
+    // safeName has been scrubbed above.
+    execFileSync('git', ['tag', tagName], { cwd, stdio: 'pipe' });
+    return tagName;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[catalogue] tryTagCataloguePre: git tag failed in ${cwd}: ${err && err.message ? err.message : err}`,
+    );
+    return null;
+  }
+}
+
 export const _internal = {
   DEFAULTS,
   GROWTH_CANDIDATES,
@@ -304,5 +373,6 @@ export const _internal = {
   LOG_FILE,
   TEST_LOG_FILE,
   appendAudit,
+  tryTagCataloguePre,
   MODULE_REPO_ROOT,
 };
