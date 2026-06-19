@@ -9,13 +9,13 @@
  *  - No LLM call, no real network, no shell.
  *  - Errors return { ok: false, error } — NEVER throw to caller.
  */
-import { test, describe } from 'node:test';
+import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { feishu } from './feishu.js';
+import { feishu, _resetTokenCache } from './feishu.js';
 
 const D = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(D, './feishu.js');
@@ -130,50 +130,206 @@ describe('feishu — action: parse', () => {
   });
 });
 
-// ─── send action (mock, NO real network) ────────────────────────
-describe('feishu — action: send', () => {
-  test('12. valid text + chatId → { ok: true, messageId: "mock-...", timestamp }', async () => {
+// ─── send action (real wire, fetch mocked) ─────────────────────
+// V5 cycle 1: send calls /open-apis/auth/v3/tenant_access_token/internal
+// then /open-apis/im/v1/messages?receive_id_type=open_id. fetchImpl is
+// injected via config; tests must NOT touch the real network.
+describe('feishu — action: send (V5 cycle 1 real wire)', () => {
+  const fakeCfg = () => ({ appId: 'cli_test', appSecret: 'secret_test' });
+  const fakeResolver = { get: () => fakeCfg() };
+
+  // Reset module-level token cache before each test for deterministic call counts.
+  beforeEach(() => {
+    _resetTokenCache();
+  });
+
+  function makeFetchMock({ tokenRes, msgRes, throwOn } = {}) {
+    const calls = [];
+    const fetchMock = async (url, init = {}) => {
+      calls.push({ url, init });
+      if (throwOn && throwOn(url)) {
+        throw new Error('ECONNREFUSED');
+      }
+      if (url.includes('/auth/v3/tenant_access_token/internal')) {
+        return tokenRes;
+      }
+      if (url.includes('/im/v1/messages')) {
+        return msgRes;
+      }
+      throw new Error(`unexpected URL in fetchMock: ${url}`);
+    };
+    return { fetchMock, calls };
+  }
+
+  function cfg(fetchMock) {
+    return { resolver: fakeResolver, fetchImpl: fetchMock };
+  }
+
+  const okToken = {
+    ok: true,
+    status: 200,
+    json: async () => ({ code: 0, msg: 'ok', tenant_access_token: 't-abc123', expire: 7200 }),
+    text: async () => '{"code":0,"tenant_access_token":"t-abc123"}',
+  };
+  const okMsg = {
+    ok: true,
+    status: 200,
+    json: async () => ({ code: 0, msg: 'ok', data: { message_id: 'om_msg_xyz' } }),
+    text: async () => '{"code":0,"data":{"message_id":"om_msg_xyz"}}',
+  };
+
+  test('12. valid text + receive_id → real wire: token then im/v1/messages; messageId returned', async () => {
+    const { fetchMock, calls } = makeFetchMock({ tokenRes: okToken, msgRes: okMsg });
     const r = await feishu.execute({
       action: 'send',
-      payload: { text: 'hi', chatId: 'oc_chat' },
+      payload: { text: 'hi', receive_id: 'ou_user_1' },
+      config: cfg(fetchMock),
     });
     assert.equal(r.ok, true);
-    assert.ok(/^mock-/.test(r.messageId), `bad messageId: ${r.messageId}`);
+    assert.equal(r.messageId, 'om_msg_xyz');
     assert.ok(typeof r.timestamp === 'string' && r.timestamp.length > 0);
-    // ISO-ish check
-    assert.ok(!Number.isNaN(Date.parse(r.timestamp)));
+    // Call order: token first, then messages.
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].url, /\/auth\/v3\/tenant_access_token\/internal$/);
+    assert.equal(calls[0].init.method, 'POST');
+    assert.match(calls[0].init.headers['Content-Type'], /application\/json/);
+    const tokenBody = JSON.parse(calls[0].init.body);
+    assert.equal(tokenBody.app_id, 'cli_test');
+    assert.equal(tokenBody.app_secret, 'secret_test');
+    assert.match(calls[1].url, /\/im\/v1\/messages\?receive_id_type=open_id$/);
+    assert.equal(calls[1].init.method, 'POST');
+    assert.equal(calls[1].init.headers.Authorization, 'Bearer t-abc123');
+    const msgBody = JSON.parse(calls[1].init.body);
+    assert.equal(msgBody.receive_id, 'ou_user_1');
+    assert.equal(msgBody.msg_type, 'text');
+    assert.equal(JSON.parse(msgBody.content).text, 'hi');
   });
 
-  test('13. empty text → { ok: false, error }', async () => {
+  test('13. empty text → { ok: false, error } (guard fires before any fetch)', async () => {
+    let called = false;
+    const fetchMock = async () => {
+      called = true;
+      return okToken;
+    };
     const r = await feishu.execute({
       action: 'send',
-      payload: { text: '', chatId: 'oc_chat' },
+      payload: { text: '', receive_id: 'ou_user_1' },
+      config: cfg(fetchMock),
     });
     assert.equal(r.ok, false);
-    assert.equal(r.error, 'missing text or chatId');
+    assert.match(r.error, /missing text or receive_id/);
+    assert.equal(called, false, 'fetch must not be called when payload is invalid');
   });
 
-  test('14. missing chatId → { ok: false, error }', async () => {
-    const r = await feishu.execute({ action: 'send', payload: { text: 'hi' } });
+  test('14. missing receive_id → { ok: false, error }', async () => {
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { text: 'hi' },
+      config: {
+        resolver: fakeResolver,
+        fetchImpl: async () => okToken,
+      },
+    });
     assert.equal(r.ok, false);
-    assert.equal(r.error, 'missing text or chatId');
+    assert.match(r.error, /missing text or receive_id/);
   });
 
-  test('15. send is mock — does NOT make any real network call (source has no fetch to feishu.cn)', () => {
-    const src = readFileSync(SRC, 'utf8');
-    assert.ok(!/open\.feishu\.cn/.test(src), 'source must not reference real Feishu API');
-    assert.ok(!/fetch\s*\(/.test(src), 'source must not call fetch()');
-    assert.ok(!/https:\/\//.test(src), 'source must not embed any https URL');
+  test('15. legacy `chatId` alias is honoured as `receive_id`', async () => {
+    const { fetchMock, calls } = makeFetchMock({ tokenRes: okToken, msgRes: okMsg });
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { text: 'hi', chatId: 'ou_legacy' },
+      config: cfg(fetchMock),
+    });
+    assert.equal(r.ok, true);
+    const msgBody = JSON.parse(calls[1].init.body);
+    assert.equal(msgBody.receive_id, 'ou_legacy');
   });
 
-  test('16. concurrent send calls produce unique mock messageIds', async () => {
-    const calls = await Promise.all(
-      Array.from({ length: 5 }, () =>
-        feishu.execute({ action: 'send', payload: { text: 'x', chatId: 'oc_chat' } }),
-      ),
-    );
-    const ids = new Set(calls.map((r) => r.messageId));
-    assert.ok(ids.size === 5, 'expected 5 unique mock messageIds');
+  test('16. tenant_access_token is cached: second send skips the token call', async () => {
+    const { fetchMock, calls } = makeFetchMock({ tokenRes: okToken, msgRes: okMsg });
+    const config = cfg(fetchMock);
+    const a = await feishu.execute({
+      action: 'send',
+      payload: { text: 'first', receive_id: 'ou_1' },
+      config,
+    });
+    const b = await feishu.execute({
+      action: 'send',
+      payload: { text: 'second', receive_id: 'ou_2' },
+      config,
+    });
+    assert.equal(a.ok, true);
+    assert.equal(b.ok, true);
+    // 2 messages calls + 1 token call = 3 total (not 4)
+    const tokenCalls = calls.filter((c) => c.url.includes('tenant_access_token'));
+    const msgCalls = calls.filter((c) => c.url.includes('/im/v1/messages'));
+    assert.equal(tokenCalls.length, 1, 'token must be cached after first call');
+    assert.equal(msgCalls.length, 2, 'both sends must hit /im/v1/messages');
+  });
+
+  test('17. fetch throw → { ok: false, error } (no throw to caller)', async () => {
+    const fetchMock = async () => {
+      throw new Error('ECONNREFUSED 127.0.0.1:443');
+    };
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { text: 'hi', receive_id: 'ou_1' },
+      config: cfg(fetchMock),
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /ECONNREFUSED|send failed|tenant/i);
+  });
+
+  test('18. tenant_access_token non-zero code → { ok: false, error } (no throw)', async () => {
+    const badToken = {
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 10003, msg: 'invalid app_secret' }),
+      text: async () => '{"code":10003,"msg":"invalid app_secret"}',
+    };
+    const fetchMock = async () => badToken;
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { text: 'hi', receive_id: 'ou_1' },
+      config: cfg(fetchMock),
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /10003|invalid app_secret/);
+  });
+
+  test('19. im/v1/messages non-zero code → { ok: false, error } (no throw)', async () => {
+    const badMsg = {
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 230020, msg: 'user not found' }),
+      text: async () => '{"code":230020,"msg":"user not found"}',
+    };
+    const { fetchMock } = makeFetchMock({ tokenRes: okToken, msgRes: badMsg });
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { text: 'hi', receive_id: 'ou_1' },
+      config: cfg(fetchMock),
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /230020|user not found/);
+  });
+
+  test('20. missing appId/appSecret → { ok: false, error } (no fetch called)', async () => {
+    let called = false;
+    const fetchMock = async () => {
+      called = true;
+      return okToken;
+    };
+    const emptyResolver = { get: () => ({}) };
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { text: 'hi', receive_id: 'ou_1' },
+      config: { resolver: emptyResolver, fetchImpl: fetchMock },
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /appId|appSecret/);
+    assert.equal(called, false);
   });
 });
 
