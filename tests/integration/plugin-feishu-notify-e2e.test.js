@@ -1,12 +1,16 @@
 /**
  * V6 cycle 1 (2026-06-19) — feishu-notify plugin e2e closure.
+ * V7 cycle 1 (2026-06-19) — upgraded to card (interactive) push.
  *
  * Closes the loop on Darwin self-evolution → Feishu DM push:
  *   1. Init the plugin with a stub feishu adapter (no real network, ADR-009).
  *   2. Emit evolution:apply:after with a real subject → assert feishu.send
- *      was called with the configured target + a text containing the subject.
+ *      was called with the configured target + a card (V7.1) with the
+ *      subject in the fields. V6.1 used formatted text; V7.1 sends a
+ *      Feishu interactive card (header.template=green for apply:after).
  *   3. Emit evolution:audit with a real proposal_id → assert feishu.send
- *      was called with the audit-formatted text.
+ *      was called with the audit card (proposal_id/action/outcome in
+ *      fields; header colour driven by outcome).
  *   4. Make the stub throw → assert plugin does NOT throw across module
  *      boundary (A-5 anti-patterns).
  *   5. Sandbox the catalogue closure so production evolution/catalogue.log
@@ -119,20 +123,26 @@ describe('feishu-notify plugin e2e (V6 cycle 1)', () => {
     assert.equal(adapterCalls.length, 0, 'no sends before any event fires');
   });
 
-  test('2. emit evolution:apply:after → feishu.send called with formatted text + target', async () => {
-    bus.emit('evolution:apply:after', { subject: 'V6.1 cycle 收口', tag: 'tag-x' });
+  test('2. emit evolution:apply:after → feishu.send called with card + target (V7 cycle 1)', async () => {
+    bus.emit('evolution:apply:after', { subject: 'V7.1 cycle 收口', tag: 'tag-x' });
     await new Promise((r) => setImmediate(r));
 
     assert.equal(adapterCalls.length, 1, 'one send per event');
     assert.equal(adapterCalls[0].action, 'send');
     assert.equal(adapterCalls[0].payload.receive_id, 'ou_e2e_user_001');
-    assert.match(adapterCalls[0].payload.text, /V6\.1 cycle 收口/);
-    assert.match(adapterCalls[0].payload.text, /✅/);
+    // V7 cycle 1: card is the body, NOT text.
+    assert.equal(typeof adapterCalls[0].payload.card, 'object');
+    assert.equal(adapterCalls[0].payload.card.header.template, 'green');
+    const fieldText = adapterCalls[0].payload.card.elements
+      .find((e) => e.tag === 'div')
+      .fields.map((f) => f.text.content)
+      .join(' | ');
+    assert.match(fieldText, /V7\.1 cycle 收口/);
   });
 
-  test('3. emit evolution:audit → feishu.send called with audit-formatted text', async () => {
+  test('3. emit evolution:audit → feishu.send called with audit card (V7 cycle 1)', async () => {
     bus.emit('evolution:audit', {
-      proposal_id: 'prop-v6-1-001',
+      proposal_id: 'prop-v7-1-001',
       action: 'apply',
       outcome: 'success',
     });
@@ -141,9 +151,14 @@ describe('feishu-notify plugin e2e (V6 cycle 1)', () => {
     assert.equal(adapterCalls.length, 1);
     assert.equal(adapterCalls[0].action, 'send');
     assert.equal(adapterCalls[0].payload.receive_id, 'ou_e2e_user_001');
-    assert.match(adapterCalls[0].payload.text, /📒/);
-    assert.match(adapterCalls[0].payload.text, /prop-v6-1-001/);
-    assert.match(adapterCalls[0].payload.text, /apply\/success/);
+    assert.equal(adapterCalls[0].payload.card.header.template, 'green');
+    const fieldText = adapterCalls[0].payload.card.elements
+      .find((e) => e.tag === 'div')
+      .fields.map((f) => f.text.content)
+      .join(' | ');
+    assert.match(fieldText, /prop-v7-1-001/);
+    assert.match(fieldText, /apply/);
+    assert.match(fieldText, /success/);
   });
 
   test('4. both events fired in sequence → 2 sends, one per event, in order', async () => {
@@ -156,8 +171,10 @@ describe('feishu-notify plugin e2e (V6 cycle 1)', () => {
     await new Promise((r) => setImmediate(r));
 
     assert.equal(adapterCalls.length, 2);
-    assert.match(adapterCalls[0].payload.text, /✅ Darwin cycle 收口: first/);
-    assert.match(adapterCalls[1].payload.text, /📒 Darwin audit: p2 \(audit\/logged\)/);
+    assert.equal(adapterCalls[0].payload.card.header.template, 'green');
+    assert.equal(adapterCalls[0].payload.card.header.title.content, 'first');
+    // audit default outcome 'logged' is unknown → blue (info).
+    assert.equal(adapterCalls[1].payload.card.header.template, 'blue');
   });
 
   test('5. adapter throw → plugin does NOT throw (A-5 isolation); loader state intact', async () => {

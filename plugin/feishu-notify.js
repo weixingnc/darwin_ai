@@ -1,17 +1,32 @@
 /**
- * feishu-notify — Darwin self-evolution → Feishu DM push plugin (V6 cycle 1).
+ * feishu-notify — Darwin self-evolution → Feishu DM push plugin.
+ *
+ *   V6 cycle 1 (2026-06-19): initial release. Subscribed to
+ *     evolution:apply:after + evolution:audit, formatted short text
+ *     ("✅ Darwin cycle 收口: …"), pushed via platform/feishu.js
+ *     `send` action (msg_type='text').
+ *
+ *   V7 cycle 1 (2026-06-19): P2-ext 展示面升级. Replaced the inline
+ *     text formatters with the feishu-card skill. The plugin now
+ *     builds a Feishu **interactive card** (color header + fields +
+ *     divider + note) and pushes it via the same `send` action
+ *     (V7.1 — payload.card path, msg_type='interactive'). Wire-level
+ *     upgrade is transparent to the user; the Feishu DM now lands
+ *     as a structured card instead of plain text.
  *
  * Subscribes to evolution:apply:after + evolution:audit events. When they
- * fire, formats a short status message ("✅ Darwin cycle 收口: …") and
- * pushes it to a configured Feishu open_id via the feishu adapter's
- * `send` action (V5.1 real IM v1 wire).
+ * fire, builds a card with skill/examples/feishu-card.js (ADR-009
+ * mechanical stub, no LLM) and pushes it to a configured Feishu open_id
+ * via the feishu adapter's `send` action (V5.1 real IM v1 wire +
+ * V7.1 interactive card body).
  *
- * V6.1 use case: Darwin's self-evolution completes a cycle (apply +
- * audit), the user gets a Feishu DM without having to tail a log file.
+ * V7 use case: Darwin's self-evolution completes a cycle (apply +
+ * audit), the user gets a color-coded Feishu card DM with the cycle
+ * subject, tag, commit SHA, audit outcome, etc.
  *
  * Manifest (P2d contract, validated by IPlugin.validate at load time):
  *   - name         'feishu-notify'     (lowercase, non-empty)
- *   - version      '0.1.0'             (V6 cycle 1, initial release)
+ *   - version      '0.2.0'             (V7 cycle 1, switched to card)
  *   - capabilities ['tool']            (PLUGIN_CAPABILITIES; same as audit.
  *                                       Note: PM brief said ['bus', 'platform']
  *                                       but PLUGIN_CAPABILITIES whitelist is
@@ -38,18 +53,20 @@
  *               can boot without a Feishu target configured).
  *               ctx.adapters?.feishu may override the imported feishu
  *               adapter (for tests). Default: import feishu from
- *               ../platform/feishu.js (real IM v1 wire).
+ *               ../platform/feishu.js (real IM v1 wire + V7.1 card
+ *               support via payload.card).
  *               Subscribe to evolution:apply:after + evolution:audit.
  *   destroy()   unsubscribe both topics, clear state.
  *
  * Adapter injection contract (for tests):
  *   plugin.init({ eventBus, config, adapters: { feishu: stubAdapter } })
  *   The stub must implement execute({action, payload, config}) → Promise.
- *   For 'send' action, payload must include { receive_id, text } and
+ *   For 'send' action, payload now includes { receive_id, card } and
  *   config may include { resolver, fetchImpl } for full test isolation.
  */
 
 import { feishu as defaultFeishu } from '../platform/feishu.js';
+import { buildCard as buildFeishuCard } from '../skill/examples/feishu-card.js';
 
 const EVOLUTION_APPLY_AFTER = 'evolution:apply:after';
 const EVOLUTION_AUDIT = 'evolution:audit';
@@ -62,23 +79,7 @@ function resolveNotifyConfig(raw) {
   };
 }
 
-function formatApplyAfter(payload) {
-  const subject =
-    (payload && typeof payload.subject === 'string' && payload.subject) ||
-    (payload && typeof payload.tag === 'string' && payload.tag) ||
-    'unknown apply';
-  return `✅ Darwin cycle 收口: ${subject}`;
-}
-
-function formatAudit(payload) {
-  const proposal =
-    (payload && typeof payload.proposal_id === 'string' && payload.proposal_id) || 'unknown';
-  const action = (payload && typeof payload.action === 'string' && payload.action) || '?';
-  const outcome = (payload && typeof payload.outcome === 'string' && payload.outcome) || '?';
-  return `📒 Darwin audit: ${proposal} (${action}/${outcome})`;
-}
-
-async function dispatch(adapter, { target, text }) {
+async function dispatch(adapter, { target, card }) {
   if (typeof adapter !== 'object' || typeof adapter.execute !== 'function') {
     return { ok: false, error: 'feishu adapter not available' };
   }
@@ -89,7 +90,7 @@ async function dispatch(adapter, { target, text }) {
   try {
     r = await adapter.execute({
       action: 'send',
-      payload: { receive_id: target, text },
+      payload: { receive_id: target, card },
     });
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : 'feishu execute threw' };
@@ -99,7 +100,7 @@ async function dispatch(adapter, { target, text }) {
 
 export default {
   name: 'feishu-notify',
-  version: '0.1.0',
+  version: '0.2.0',
   capabilities: ['tool'],
   permissions: ['bus:on', 'bus:off', 'log:info', 'log:error', 'config:get'],
 
@@ -145,16 +146,17 @@ export default {
   },
 
   /**
-   * Internal: handle an evolution event. Builds a short status text and
-   * dispatches it to feishu via the adapter. Errors are logged, never
-   * thrown across the module boundary (A-5 anti-patterns).
+   * Internal: handle an evolution event. Builds a Feishu interactive
+   * card via skill/examples/feishu-card.js and dispatches it to feishu
+   * via the adapter. Errors are logged, never thrown across the module
+   * boundary (A-5 anti-patterns).
    */
   async _onEvolutionEvent(topic, payload) {
     if (!this._notify || this._notify.enabled === false) {
       return;
     }
-    const text = topic === EVOLUTION_AUDIT ? formatAudit(payload) : formatApplyAfter(payload);
-    const r = await dispatch(this._adapter, { target: this._notify.target, text });
+    const { card } = buildFeishuCard({ topic, payload });
+    const r = await dispatch(this._adapter, { target: this._notify.target, card });
     if (r && r.ok === true) {
       return;
     }

@@ -420,3 +420,132 @@ describe('feishu — A-4 hygiene (no process.env, ConfigResolver is the only pat
     assert.ok(!/node:child_process/.test(src), 'must not import child_process');
   });
 });
+
+// ─── send action: card path (V7 cycle 1 interactive) ────────────
+// V7 cycle 1 added payload.card → msg_type='interactive'.
+// Card wins over text when both are present. payload.card must be an
+// object — a string is a misuse (V5 text path lives at .text).
+describe('feishu — action: send (V7 cycle 1 card path)', () => {
+  const fakeCfg = () => ({ appId: 'cli_test', appSecret: 'secret_test' });
+  const fakeResolver = { get: () => fakeCfg() };
+  beforeEach(() => {
+    _resetTokenCache();
+  });
+
+  function makeFetchMock({ tokenRes, msgRes } = {}) {
+    const calls = [];
+    const fetchMock = async (url, init = {}) => {
+      calls.push({ url, init });
+      if (url.includes('/auth/v3/tenant_access_token/internal')) {
+        return tokenRes;
+      }
+      if (url.includes('/im/v1/messages')) {
+        return msgRes;
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    return { fetchMock, calls };
+  }
+
+  const okToken = {
+    ok: true,
+    status: 200,
+    json: async () => ({ code: 0, msg: 'ok', tenant_access_token: 't-card', expire: 7200 }),
+    text: async () => '{}',
+  };
+  const okMsg = {
+    ok: true,
+    status: 200,
+    json: async () => ({ code: 0, msg: 'ok', data: { message_id: 'om_card_xyz' } }),
+    text: async () => '{}',
+  };
+
+  test('25. payload.card object → im/v1/messages with msg_type=interactive + content=JSON.stringify(card)', async () => {
+    const { fetchMock, calls } = makeFetchMock({ tokenRes: okToken, msgRes: okMsg });
+    const card = {
+      header: { title: { tag: 'plain_text', content: 'V7.1' }, template: 'green' },
+      elements: [
+        { tag: 'divider' },
+        { tag: 'note', elements: [{ tag: 'plain_text', content: 'x' }] },
+      ],
+    };
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { receive_id: 'ou_card_user', card },
+      config: { resolver: fakeResolver, fetchImpl: fetchMock },
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.messageId, 'om_card_xyz');
+    assert.equal(calls.length, 2);
+    const msgCall = calls[1];
+    assert.match(msgCall.url, /\/im\/v1\/messages\?receive_id_type=open_id$/);
+    const body = JSON.parse(msgCall.init.body);
+    assert.equal(body.msg_type, 'interactive');
+    assert.equal(body.receive_id, 'ou_card_user');
+    // content is the JSON-stringified card, not the text path's {"text":"…"}.
+    const content = JSON.parse(body.content);
+    assert.deepEqual(content, card);
+    assert.equal(content.header.template, 'green');
+  });
+
+  test('26. payload.card + payload.text both present → card wins (interactive)', async () => {
+    const { fetchMock, calls } = makeFetchMock({ tokenRes: okToken, msgRes: okMsg });
+    const card = {
+      header: { title: { tag: 'plain_text', content: 't' }, template: 'red' },
+      elements: [],
+    };
+    await feishu.execute({
+      action: 'send',
+      payload: { receive_id: 'ou_user', card, text: 'this should be ignored' },
+      config: { resolver: fakeResolver, fetchImpl: fetchMock },
+    });
+    const body = JSON.parse(calls[1].init.body);
+    assert.equal(body.msg_type, 'interactive');
+    assert.equal(JSON.parse(body.content).header.template, 'red');
+  });
+
+  test('27. payload.card is a string (V5 misuse) → { ok:false, error } and NO fetch', async () => {
+    let called = false;
+    const fetchMock = async () => {
+      called = true;
+      return okToken;
+    };
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { receive_id: 'ou_user', card: 'oops this is text not a card' },
+      config: { resolver: fakeResolver, fetchImpl: fetchMock },
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /payload\.card must be an object/);
+    assert.equal(called, false, 'must reject before any network call');
+  });
+
+  test('28. payload.card object but receive_id missing → { ok:false, error } no fetch', async () => {
+    let called = false;
+    const fetchMock = async () => {
+      called = true;
+      return okToken;
+    };
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { card: { header: {}, elements: [] } },
+      config: { resolver: fakeResolver, fetchImpl: fetchMock },
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /missing receive_id/);
+    assert.equal(called, false);
+  });
+
+  test('29. payload.card object with no elements/header is still passed through (card is opaque to adapter)', async () => {
+    const { fetchMock, calls } = makeFetchMock({ tokenRes: okToken, msgRes: okMsg });
+    const card = { header: { title: { tag: 'plain_text', content: 'min' }, template: 'blue' } };
+    const r = await feishu.execute({
+      action: 'send',
+      payload: { receive_id: 'ou_user', card },
+      config: { resolver: fakeResolver, fetchImpl: fetchMock },
+    });
+    assert.equal(r.ok, true);
+    const body = JSON.parse(calls[1].init.body);
+    assert.equal(body.msg_type, 'interactive');
+  });
+});

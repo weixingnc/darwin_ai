@@ -19,7 +19,14 @@
  *                Acquires tenant_access_token via /open-apis/auth/v3/tenant_access_token/internal
  *                and caches it (per appId) for the lifetime of the adapter.
  *                payload.receive_id OR payload.chatId is the recipient's open_id.
- *                payload.text is the message body (msg_type='text').
+ *                Two body variants (V7 cycle 1):
+ *                  (a) payload.text (string) → msg_type='text',
+ *                      content='{"text":"…"}' (V5.1 path, unchanged).
+ *                  (b) payload.card (object) → msg_type='interactive',
+ *                      content=JSON.stringify(card). Card wins over text
+ *                      when both are present. payload.card MUST be an
+ *                      object — a string at .card is a misuse (V5 path
+ *                      put text there) and is rejected with ok:false.
  *   - 'verify' : HMAC-SHA256 signature check.
  *
  * Config (A-4, NEVER process.env):
@@ -105,6 +112,36 @@ async function sendMessage({ token, receiveId, text, fetchImpl }) {
       receive_id: receiveId,
       msg_type: 'text',
       content: JSON.stringify({ text }),
+    }),
+  });
+  if (!res.ok) {
+    const errBody = await safeReadError(res);
+    throw new Error(`im/v1/messages HTTP ${res.status}: ${errBody}`);
+  }
+  const data = await res.json();
+  if (data.code !== 0 || !data.data || !data.data.message_id) {
+    throw new Error(`im/v1/messages refused: code=${data.code} msg=${data.msg || ''}`);
+  }
+  return data.data.message_id;
+}
+
+/**
+ * Send a Feishu interactive card (V7 cycle 1). Same endpoint as
+ * sendMessage; msg_type='interactive' and content is the JSON-stringified
+ * card (Feishu open-platform spec).
+ */
+async function sendCardAction({ token, receiveId, card, fetchImpl }) {
+  const url = `${FEISHU_BASE}/im/v1/messages?receive_id_type=open_id`;
+  const res = await fetchImpl(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      receive_id: receiveId,
+      msg_type: 'interactive',
+      content: JSON.stringify(card),
     }),
   });
   if (!res.ok) {
@@ -204,9 +241,18 @@ function parseAction(payload) {
   };
 }
 
+/**
+ * Extract send-action payload. Three modes (V7 cycle 1):
+ *   - card object present           → { kind:'card', card, receiveId }
+ *   - card is a string              → { kind:'invalid', reason:'card must be object' }
+ *   - text only (V5 backwards compat) → { kind:'text', text, receiveId }
+ *   - nothing                       → { kind:'invalid', reason:'missing text or receive_id' }
+ *
+ * Card wins over text when both are present (interactive beats plain
+ * text — caller clearly wanted a structured message).
+ */
 function extractSendPayload(payload) {
   const p = payload && typeof payload === 'object' ? payload : {};
-  const text = typeof p.text === 'string' ? p.text : '';
   // Feishu spec uses `receive_id`; legacy callers may pass `chatId` as alias.
   let receiveId = '';
   if (typeof p.receive_id === 'string') {
@@ -214,7 +260,20 @@ function extractSendPayload(payload) {
   } else if (typeof p.chatId === 'string') {
     receiveId = p.chatId;
   }
-  return { text, receiveId };
+  if ('card' in p) {
+    if (p.card && typeof p.card === 'object' && !Array.isArray(p.card)) {
+      return { kind: 'card', card: p.card, receiveId };
+    }
+    return {
+      kind: 'invalid',
+      reason: 'payload.card must be an object (V5 string at .card is invalid)',
+    };
+  }
+  const text = typeof p.text === 'string' ? p.text : '';
+  if (text.length === 0 || receiveId.length === 0) {
+    return { kind: 'invalid', reason: 'missing text or receive_id' };
+  }
+  return { kind: 'text', text, receiveId };
 }
 
 function extractSendContext(config) {
@@ -227,9 +286,13 @@ function extractSendContext(config) {
 }
 
 async function sendAction(payload, config) {
-  const { text, receiveId } = extractSendPayload(payload);
-  if (text.length === 0 || receiveId.length === 0) {
-    return { ok: false, error: 'missing text or receive_id' };
+  const extracted = extractSendPayload(payload);
+  if (extracted.kind === 'invalid') {
+    return { ok: false, error: extracted.reason };
+  }
+  const { receiveId } = extracted;
+  if (receiveId.length === 0) {
+    return { ok: false, error: 'missing receive_id' };
   }
   const { appId, appSecret, fetchImpl } = extractSendContext(config);
   if (appId.length === 0 || appSecret.length === 0) {
@@ -245,7 +308,12 @@ async function sendAction(payload, config) {
       token = got.token;
       setCachedToken(appId, token, got.expire);
     }
-    const messageId = await sendMessage({ token, receiveId, text, fetchImpl });
+    let messageId;
+    if (extracted.kind === 'card') {
+      messageId = await sendCardAction({ token, receiveId, card: extracted.card, fetchImpl });
+    } else {
+      messageId = await sendMessage({ token, receiveId, text: extracted.text, fetchImpl });
+    }
     return { ok: true, messageId, timestamp: new Date().toISOString() };
   } catch (err) {
     // Force token refresh on next send on any auth failure.

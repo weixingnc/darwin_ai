@@ -1,11 +1,20 @@
 /**
- * feishu-notify plugin tests — V6 cycle 1 (2026-06-19).
+ * feishu-notify plugin tests — V7 cycle 1 (2026-06-19).
+ *
+ *   V6 cycle 1: tests asserted on the inline text formatters
+ *     (formatApplyAfter / formatAudit). V7 cycle 1 P2-ext replaced
+ *     them with the feishu-card skill. This file now asserts on the
+ *     card shape (header.template color + elements present), the
+ *     enabled/disable/destroy lifecycle, and the error-isolation
+ *     contract (A-5).
  *
  * Covers:
  *  - IPlugin manifest shape (P2d contract)
  *  - init() subscribes to evolution:apply:after + evolution:audit
- *  - evolution:apply:after → feishu.send with formatted text
- *  - evolution:audit → feishu.send with audit-formatted text
+ *  - evolution:apply:after → feishu.send with card (header.template=green)
+ *  - evolution:apply:after (no subject) → card uses tag fallback
+ *  - evolution:audit commit → card (header.template=green, fields=audit)
+ *  - evolution:audit warn/error → card header color orange/red
  *  - destroy() unsubscribes (events after destroy don't fire feishu.send)
  *  - feishu.send throw → plugin logs to stderr, never throws to caller
  *  - feishu.send {ok:false} → plugin logs, never throws
@@ -53,7 +62,8 @@ function stubFeishu({ throwErr = null, returnValue = { ok: true, messageId: 'om_
 describe('feishu-notify plugin — manifest (P2d contract)', () => {
   test('has name, version, capabilities, permissions in expected shape', () => {
     assert.equal(feishuNotify.name, 'feishu-notify');
-    assert.equal(feishuNotify.version, '0.1.0');
+    // V7 cycle 1: bumped to 0.2.0 (switched from text to card).
+    assert.equal(feishuNotify.version, '0.2.0');
     assert.deepEqual(feishuNotify.capabilities, ['tool']);
     assert.deepEqual(feishuNotify.permissions, [
       'bus:on',
@@ -98,7 +108,7 @@ describe('feishu-notify plugin — direct init (no loader, fast)', () => {
     }
   });
 
-  test('evolution:apply:after → feishu.send called with formatted text + configured target', async () => {
+  test('evolution:apply:after → feishu.send called with card (header.template=green) + configured target', async () => {
     const { stub, calls } = stubFeishu();
     feishuNotify.init({
       eventBus: bus,
@@ -106,18 +116,26 @@ describe('feishu-notify plugin — direct init (no loader, fast)', () => {
       adapters: { feishu: stub },
     });
 
-    bus.emit('evolution:apply:after', { subject: 'V6.1 cycle 收口', tag: 'tag-x' });
+    bus.emit('evolution:apply:after', { subject: 'V7.1 cycle 收口', tag: 'tag-x' });
 
     // Allow microtasks (dispatch is async).
     await new Promise((r) => setImmediate(r));
     assert.equal(calls.length, 1);
     assert.equal(calls[0].action, 'send');
     assert.equal(calls[0].payload.receive_id, 'ou_user_test_1');
-    assert.match(calls[0].payload.text, /✅ Darwin cycle 收口: V6\.1 cycle 收口/);
+    // V7 cycle 1: payload is { receive_id, card } — no more .text.
+    assert.equal(typeof calls[0].payload.card, 'object');
+    assert.equal(calls[0].payload.card.header.template, 'green');
+    const fieldText = calls[0].payload.card.elements
+      .find((e) => e.tag === 'div')
+      .fields.map((f) => f.text.content)
+      .join(' | ');
+    assert.match(fieldText, /subject: V7\.1 cycle 收口/);
+    assert.match(fieldText, /tag: tag-x/);
     feishuNotify.destroy();
   });
 
-  test('evolution:apply:after with no subject → text uses tag fallback', async () => {
+  test('evolution:apply:after with no subject → card title uses tag fallback', async () => {
     const { stub, calls } = stubFeishu();
     feishuNotify.init({
       eventBus: bus,
@@ -128,11 +146,12 @@ describe('feishu-notify plugin — direct init (no loader, fast)', () => {
     bus.emit('evolution:apply:after', { tag: 'fallback-tag-42' });
     await new Promise((r) => setImmediate(r));
     assert.equal(calls.length, 1);
-    assert.match(calls[0].payload.text, /✅ Darwin cycle 收口: fallback-tag-42/);
+    assert.equal(calls[0].payload.card.header.template, 'green');
+    assert.equal(calls[0].payload.card.header.title.content, 'fallback-tag-42');
     feishuNotify.destroy();
   });
 
-  test('evolution:audit event → feishu.send called with audit-formatted text', async () => {
+  test('evolution:audit event (commit/success) → card with header.template=green + audit fields', async () => {
     const { stub, calls } = stubFeishu();
     feishuNotify.init({
       eventBus: bus,
@@ -149,8 +168,73 @@ describe('feishu-notify plugin — direct init (no loader, fast)', () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].action, 'send');
     assert.equal(calls[0].payload.receive_id, 'ou_user_test_3');
-    assert.match(calls[0].payload.text, /📒 Darwin audit: prop-001 \(apply\/success\)/);
+    assert.equal(calls[0].payload.card.header.template, 'green');
+    const fieldText = calls[0].payload.card.elements
+      .find((e) => e.tag === 'div')
+      .fields.map((f) => f.text.content)
+      .join(' | ');
+    assert.match(fieldText, /proposal_id: prop-001/);
+    assert.match(fieldText, /action: apply/);
+    assert.match(fieldText, /outcome: success/);
     feishuNotify.destroy();
+  });
+
+  test('evolution:audit event (warn) → card header.template=orange', async () => {
+    const { stub, calls } = stubFeishu();
+    feishuNotify.init({
+      eventBus: bus,
+      config: { target: 'ou_user_warn' },
+      adapters: { feishu: stub },
+    });
+
+    bus.emit('evolution:audit', {
+      proposal_id: 'prop-warn',
+      action: 'audit',
+      outcome: 'warn',
+    });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(calls[0].payload.card.header.template, 'orange');
+    feishuNotify.destroy();
+  });
+
+  test('evolution:audit event (error) → card header.template=red', async () => {
+    const { stub, calls } = stubFeishu();
+    feishuNotify.init({
+      eventBus: bus,
+      config: { target: 'ou_user_err' },
+      adapters: { feishu: stub },
+    });
+
+    bus.emit('evolution:audit', {
+      proposal_id: 'prop-err',
+      action: 'apply',
+      outcome: 'error',
+    });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(calls[0].payload.card.header.template, 'red');
+    feishuNotify.destroy();
+  });
+});
+
+describe('feishu-notify plugin — error isolation + lifecycle (A-5)', () => {
+  let bus;
+  let stderrChunks;
+  const origWrite = process.stderr.write.bind(process.stderr);
+
+  beforeEach(() => {
+    bus = new EventBus();
+    stderrChunks = [];
+    process.stderr.write = (chunk) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    };
+  });
+
+  afterEach(() => {
+    process.stderr.write = origWrite;
+    if (feishuNotify._handlers) {
+      feishuNotify.destroy();
+    }
   });
 
   test('destroy() unsubscribes both topics — events after destroy do not call feishu', async () => {
