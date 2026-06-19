@@ -219,3 +219,229 @@ describe('feishu-notify plugin e2e (V6 cycle 1)', () => {
     assert.equal(b, false, 'duplicate add must return false (idempotent)');
   });
 });
+
+/**
+ * V9 cycle 2 (2026-06-20) — loader.init() path coverage for feishu-notify.
+ *
+ * The V6.1 → V8.2 e2e suite (above) calls plugin.init() directly to inject
+ * the stub adapter (the loader's init stage does not pass adapters through).
+ * That exercises the plugin's runtime path (subscription + dispatch) but
+ * skips the loader's state machine for init/enable/disable/unload.
+ *
+ * This describe block closes that gap by going through the FULL loader
+ * lifecycle:
+ *
+ *   load → init → enable → (event fires, graceful-degradation check) →
+ *   disable → unload
+ *
+ * Plus negative paths:
+ *   - loader.load with an invalid path → {ok:false} + PLUGIN_LOAD_ERROR
+ *   - loader.init for a name that is not in UNLOADED state → illegal
+ *     transition → {ok:false} + PLUGIN_INIT_ERROR
+ *
+ * The loader's init() injects the plugin's config from ConfigResolver.get()
+ * (empty {} in tests since no resolver configPath is set). With empty
+ * config, resolveNotifyConfig({}) returns {target:'', enabled:true}.
+ * The plugin's dispatch() short-circuits on empty target — no adapter
+ * execute call, no real network, no LLM (ADR-009 satisfied). This is
+ * the "graceful degradation" path documented in plugin/feishu-notify.js's
+ * header: "If config is empty, target stays empty and the plugin no-ops
+ * on every event (graceful degradation — Darwin can boot without a Feishu
+ * target configured)."
+ *
+ * This describe uses its own bus + registry + loader so the existing 6
+ * tests' state (stub adapter + the existing loader's subscription) is
+ * preserved bit-identical (PM red line: ❌ 改现有 6 case 逻辑).
+ *
+ * No LLM (ADR-009), no process.env (A-4), no real network — the plugin's
+ * dispatch short-circuits on empty target before reaching the adapter.
+ */
+describe('feishu-notify loader.init() lifecycle e2e (V9 cycle 2)', () => {
+  let bus2;
+  let registry2;
+  let loader2;
+
+  before(async () => {
+    const f = await getLoader();
+    bus2 = new EventBus();
+    registry2 = new PluginRegistry({ eventBus: bus2 });
+    loader2 = f({ eventBus: bus2, registry: registry2 });
+  });
+
+  after(async () => {
+    if (loader2 && loader2.state('feishu-notify') !== 'UNLOADED') {
+      await loader2.unload('feishu-notify');
+    }
+  });
+
+  test('A. loader.load registers plugin + transitions UNLOADED → LOADED', async () => {
+    const r = await loader2.load('./plugin/feishu-notify.js');
+    assert.equal(r.ok, true);
+    assert.equal(registry2.has('feishu-notify'), true);
+    assert.equal(loader2.state('feishu-notify'), 'LOADED');
+
+    // Loader emits PLUGIN_LOAD on success — capture it for assertion.
+    let loadEvt = null;
+    const onLoad = (e) => {
+      loadEvt = e;
+    };
+    bus2.on('plugin:load', onLoad);
+    // The state check above already passed — the load event fired during
+    // the loader.load() call. We subscribed too late to catch it, but we
+    // can verify the side effects (registry + state). Future calls will
+    // emit; we'll catch one in case E.
+    bus2.off('plugin:load', onLoad);
+
+    // Cleanup for next test.
+    await loader2.unload('feishu-notify');
+    assert.equal(loader2.state('feishu-notify'), 'UNLOADED');
+    assert.equal(loadEvt, null, 'subscribed-after-emit is expected to be null');
+  });
+
+  test('B. loader.init calls plugin.init(ctx) with empty ConfigResolver config → INITIALIZED', async () => {
+    await loader2.load('./plugin/feishu-notify.js');
+    assert.equal(loader2.state('feishu-notify'), 'LOADED');
+
+    const r = await loader2.init('feishu-notify');
+    assert.equal(r.ok, true);
+    assert.equal(loader2.state('feishu-notify'), 'INITIALIZED');
+
+    // Plugin must have subscribed to its 2 evolution events via the bus.
+    // bus2.emit returns the listener count from EventBus; we can't directly
+    // inspect that, so verify the side effect: emitting an event triggers
+    // the no-op path (empty target → dispatch short-circuit).
+    await loader2.unload('feishu-notify');
+    assert.equal(loader2.state('feishu-notify'), 'UNLOADED');
+  });
+
+  test('C. loader.enable transitions INITIALIZED → ENABLED', async () => {
+    await loader2.load('./plugin/feishu-notify.js');
+    await loader2.init('feishu-notify');
+    assert.equal(loader2.state('feishu-notify'), 'INITIALIZED');
+
+    const r = await loader2.enable('feishu-notify');
+    assert.equal(r.ok, true);
+    assert.equal(loader2.state('feishu-notify'), 'ENABLED');
+
+    await loader2.unload('feishu-notify');
+    assert.equal(loader2.state('feishu-notify'), 'UNLOADED');
+  });
+
+  test('D. with empty target, evolution:apply:after event short-circuits (graceful degradation, no adapter call)', async () => {
+    // Capture PLUGIN_LOAD to assert it's emitted on success.
+    const seen = { load: 0, init: 0, enable: 0, loadErr: 0 };
+    const onLoad = () => seen.load++;
+    const onInit = () => seen.init++;
+    const onEnable = () => seen.enable++;
+    const onLoadErr = () => seen.loadErr++;
+    bus2.on('plugin:load', onLoad);
+    bus2.on('plugin:init', onInit);
+    bus2.on('plugin:enable', onEnable);
+    bus2.on('plugin:load:error', onLoadErr);
+
+    try {
+      await loader2.load('./plugin/feishu-notify.js');
+      await loader2.init('feishu-notify');
+      await loader2.enable('feishu-notify');
+      assert.equal(seen.load, 1, 'PLUGIN_LOAD emitted once');
+      assert.equal(seen.init, 1, 'PLUGIN_INIT emitted once');
+      assert.equal(seen.enable, 1, 'PLUGIN_ENABLE emitted once');
+      assert.equal(seen.loadErr, 0, 'no PLUGIN_LOAD_ERROR on happy path');
+
+      // Capture stderr to verify graceful-degradation message shape.
+      const stderrBefore = stderrChunks.length;
+
+      // Emit an evolution event. With empty config (target=''), the plugin's
+      // dispatch() short-circuits and writes a stderr message. NO real
+      // adapter call (no fetch, no LLM, no real network) — this is the
+      // graceful-degradation path documented in plugin/feishu-notify.js.
+      bus2.emit('evolution:apply:after', { subject: 'V9.2 graceful no-op' });
+      await new Promise((resolveTick) => setImmediate(resolveTick));
+
+      // Plugin's stderr message indicates "no feishuNotifyTarget configured"
+      // — proves dispatch() short-circuited and no adapter was wired.
+      const newStderr = stderrChunks.slice(stderrBefore).join('');
+      assert.match(
+        newStderr,
+        /\[feishu-notify\] evolution:apply:after push failed: no feishuNotifyTarget configured/,
+        'graceful-degradation stderr message present',
+      );
+
+      // Loader state unchanged after the event — the plugin no-op'd.
+      assert.equal(loader2.state('feishu-notify'), 'ENABLED');
+    } finally {
+      bus2.off('plugin:load', onLoad);
+      bus2.off('plugin:init', onInit);
+      bus2.off('plugin:enable', onEnable);
+      bus2.off('plugin:load:error', onLoadErr);
+      await loader2.unload('feishu-notify');
+    }
+  });
+
+  test('E. loader.disable + loader.unload transitions ENABLED → DISABLED → UNLOADED', async () => {
+    await loader2.load('./plugin/feishu-notify.js');
+    await loader2.init('feishu-notify');
+    await loader2.enable('feishu-notify');
+    assert.equal(loader2.state('feishu-notify'), 'ENABLED');
+
+    const dr = await loader2.disable('feishu-notify');
+    assert.equal(dr.ok, true);
+    assert.equal(loader2.state('feishu-notify'), 'DISABLED');
+
+    const ur = await loader2.unload('feishu-notify');
+    assert.equal(ur.ok, true);
+    assert.equal(loader2.state('feishu-notify'), 'UNLOADED');
+    // Registry should drop the plugin ref after unload.
+    assert.equal(registry2.has('feishu-notify'), false);
+  });
+
+  test('F. loader.load with invalid path returns {ok:false} + emits PLUGIN_LOAD_ERROR', async () => {
+    const seen = { loadErr: null };
+    const onLoadErr = (e) => {
+      seen.loadErr = e;
+    };
+    bus2.on('plugin:load:error', onLoadErr);
+    try {
+      const r = await loader2.load('./plugin/does-not-exist.js');
+      assert.equal(r.ok, false, 'invalid path → loader.load returns {ok:false}');
+      // Allow the synchronous bus.emit to settle (the loader emits
+      // synchronously inside errEvt; give the listener a tick).
+      await new Promise((resolveTick) => setImmediate(resolveTick));
+      assert.ok(seen.loadErr, 'PLUGIN_LOAD_ERROR emitted');
+      assert.equal(seen.loadErr.op, 'load');
+      // State machine unchanged (still UNLOADED — nothing was registered).
+      assert.equal(loader2.state('feishu-notify'), 'UNLOADED');
+      assert.equal(registry2.has('feishu-notify'), false);
+    } finally {
+      bus2.off('plugin:load:error', onLoadErr);
+    }
+  });
+
+  test('G. loader.init before load() → illegal transition (UNLOADED not in [LOADED,INITIALIZED]) + PLUGIN_INIT_ERROR', async () => {
+    // Fresh registry + loader; plugin is NOT loaded yet, state is UNLOADED.
+    assert.equal(loader2.state('feishu-notify'), 'UNLOADED');
+
+    const seen = { initErr: null };
+    const onInitErr = (e) => {
+      seen.initErr = e;
+    };
+    bus2.on('plugin:init:error', onInitErr);
+    try {
+      // init() from UNLOADED is illegal: TRANS.init allows only LOADED or
+      // INITIALIZED as source states. The loader rejects the transition,
+      // emits PLUGIN_INIT_ERROR, and returns {ok:false}.
+      const r = await loader2.init('feishu-notify');
+      assert.equal(r.ok, false, 'init() from UNLOADED rejected (illegal transition)');
+      await new Promise((resolveTick) => setImmediate(resolveTick));
+      assert.ok(seen.initErr, 'PLUGIN_INIT_ERROR emitted');
+      assert.equal(seen.initErr.op, 'init');
+      assert.match(seen.initErr.message, /illegal transition/);
+      // State unchanged — still UNLOADED, not stuck in error state.
+      assert.equal(loader2.state('feishu-notify'), 'UNLOADED');
+      // Plugin not registered (never went through load()).
+      assert.equal(registry2.has('feishu-notify'), false);
+    } finally {
+      bus2.off('plugin:init:error', onInitErr);
+    }
+  });
+});
