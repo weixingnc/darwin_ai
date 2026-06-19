@@ -39,6 +39,7 @@ const PHASE_EVENTS = [
   'lifecycle:bootstrap:config',
   'lifecycle:bootstrap:container',
   'lifecycle:bootstrap:registry',
+  'lifecycle:bootstrap:cron',
   'lifecycle:bootstrap:ready',
 ];
 const FULL_EVENT_ORDER = [
@@ -61,6 +62,20 @@ describe('bootstrap happy path', () => {
     assert.equal(typeof c.get('errorHandler').handle, 'function');
   });
 
+  test('cron service is registered after bootstrap (V7 cycle 2)', () => {
+    const c = bootstrap();
+    const cron = c.get('cron');
+    assert.ok(cron, 'cron service must be registered under key "cron"');
+    assert.equal(typeof cron.register, 'function');
+    assert.equal(typeof cron.start, 'function');
+    assert.equal(typeof cron.stop, 'function');
+    assert.equal(typeof cron.tick, 'function');
+    // list() returns diagnostics — bootstrap hasn't started any jobs.
+    const diag = cron.list();
+    assert.equal(diag.totalRegistered, 0);
+    assert.equal(diag.started, false);
+  });
+
   test('emits START → *phases → DONE → CORE_READY in order on the framework bus', () => {
     const { container, bus } = makeTrackedContainer();
     const seen = [];
@@ -74,11 +89,11 @@ describe('bootstrap happy path', () => {
   test('passes a phase payload on each phase event', () => {
     const { container, bus } = makeTrackedContainer();
     const payloads = [];
-    for (const phase of ['init', 'config', 'container', 'registry', 'ready']) {
+    for (const phase of ['init', 'config', 'container', 'registry', 'cron', 'ready']) {
       bus.on(`lifecycle:bootstrap:${phase}`, (p) => payloads.push({ phase, p }));
     }
     bootstrap({ container });
-    assert.equal(payloads.length, 5);
+    assert.equal(payloads.length, 6);
     for (const { phase, p } of payloads) {
       assert.equal(p.phase, phase);
       assert.ok(p.container instanceof Container);

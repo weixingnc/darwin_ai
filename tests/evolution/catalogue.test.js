@@ -43,13 +43,15 @@ test('P2g: loadCatalogue() returns DEFAULTS when no overlay exists', () => {
   // + metrics), not 2. See evolution/catalogue.js DEFAULTS.plugins.
   // W6-2: now 5 (logger + audit + metrics + rate-limiter + llm-cache).
   // V6-1 (2026-06-19): now 6 (+ feishu-notify).
-  assert.equal(cat.plugins.length, 6);
+  // V7-2 (2026-06-19): now 7 (+ cron-audit).
+  assert.equal(cat.plugins.length, 7);
   assert.ok(cat.plugins.includes('logger'));
   assert.ok(cat.plugins.includes('audit'));
   assert.ok(cat.plugins.includes('metrics'));
   assert.ok(cat.plugins.includes('rate-limiter'));
   assert.ok(cat.plugins.includes('llm-cache'));
   assert.ok(cat.plugins.includes('feishu-notify'));
+  assert.ok(cat.plugins.includes('cron-audit'));
 });
 
 test('P2g: loadCatalogue() merges overlay file (additive)', () => {
@@ -58,6 +60,7 @@ test('P2g: loadCatalogue() merges overlay file (additive)', () => {
   const cat = loadCatalogue({ file });
   assert.deepEqual([...cat.plugins].sort(), [
     'audit',
+    'cron-audit',
     'feishu-notify',
     'llm-cache',
     'logger',

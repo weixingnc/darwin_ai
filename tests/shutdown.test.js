@@ -55,6 +55,56 @@ describe('shutdown happy path', () => {
   });
 });
 
+describe('shutdown cron stop (V7 cycle 2)', () => {
+  test('calls container.get(cron).stop() before SHUTDOWN_START if cron service registered', () => {
+    let stopCount = 0;
+    const c = makeContainer();
+    c.register('cron', () => ({
+      stop() {
+        stopCount += 1;
+        return { stopped: 1 };
+      },
+    }));
+    shutdown({ container: c });
+    assert.equal(stopCount, 1, 'cron.stop() must be called exactly once');
+  });
+
+  test('cron.stop is called BEFORE SHUTDOWN_START (chronological)', () => {
+    const seen = [];
+    const c = makeContainer();
+    c.register('cron', () => ({
+      stop() {
+        seen.push('cron-stop');
+      },
+    }));
+    const bus = c.get('eventBus');
+    bus.on(EVENTS.LIFECYCLE_SHUTDOWN_START, () => seen.push('shutdown-start'));
+    shutdown({ container: c });
+    assert.deepEqual(seen, ['cron-stop', 'shutdown-start']);
+  });
+
+  test('shutdown with no cron service registered does not throw (graceful)', () => {
+    const c = makeContainer();
+    assert.doesNotThrow(() => shutdown({ container: c }));
+  });
+
+  test('cron.stop() throwing is swallowed — shutdown still emits START/DONE', () => {
+    let doneCount = 0;
+    const c = makeContainer();
+    c.register('cron', () => ({
+      stop() {
+        throw new Error('cron blew up');
+      },
+    }));
+    const bus = c.get('eventBus');
+    bus.on(EVENTS.LIFECYCLE_SHUTDOWN_DONE, () => {
+      doneCount += 1;
+    });
+    assert.doesNotThrow(() => shutdown({ container: c }));
+    assert.equal(doneCount, 1);
+  });
+});
+
 describe('shutdown idempotency', () => {
   test('calling shutdown twice does not throw; first call fires start+done once', () => {
     const c = makeContainer();
