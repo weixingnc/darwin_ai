@@ -96,10 +96,78 @@ function logFinishOrStop(finishReason, opts = {}) {
   }
 }
 
+/** V4 cycle 4 (P1-B2): build the OpenAI `/v1/embeddings` request body.
+ *  Wire shape: { input: texts[], model: string, encoding_format?: string }.
+ *  Throws on bad input — ProtocolBase._wrap catches and surfaces as entry.error. */
+function buildEmbedRequestBody(texts, options = {}) {
+  const opts = options && typeof options === 'object' ? options : {};
+  if (!Array.isArray(texts) || texts.length === 0) {
+    throw new TypeError('[openai-compatible] buildEmbedRequest: texts must be non-empty array');
+  }
+  for (let i = 0; i < texts.length; i++) {
+    if (typeof texts[i] !== 'string') {
+      throw new TypeError(
+        `[openai-compatible] buildEmbedRequest: texts[${i}] must be string (got ${typeof texts[i]})`,
+      );
+    }
+  }
+  const body = {
+    input: texts.slice(),
+    model:
+      typeof opts.model === 'string' && opts.model.length > 0
+        ? opts.model
+        : 'text-embedding-3-small',
+  };
+  if (typeof opts.encoding_format === 'string') {
+    body.encoding_format = opts.encoding_format;
+  }
+  return body;
+}
+
+/** V4 cycle 4: parse the OpenAI `/v1/embeddings` response.
+ *  Wire shape: { data: [{ embedding: number[], index: number, object: 'embedding' }] }.
+ *  Returns { data: [{ embedding: number[] }] } preserving order. Throws on bad input. */
+function parseEmbedResponseBody(rawResponse) {
+  if (!rawResponse || typeof rawResponse !== 'object') {
+    throw new TypeError('[openai-compatible] parseEmbedResponse: rawResponse must be object');
+  }
+  if (!Array.isArray(rawResponse.data) || rawResponse.data.length === 0) {
+    throw new Error('[openai-compatible] parseEmbedResponse: rawResponse.data is empty or missing');
+  }
+  const out = [];
+  for (let i = 0; i < rawResponse.data.length; i++) {
+    const item = rawResponse.data[i];
+    if (!item || !Array.isArray(item.embedding) || item.embedding.length === 0) {
+      throw new Error(
+        `[openai-compatible] parseEmbedResponse: data[${i}].embedding must be non-empty array`,
+      );
+    }
+    for (let j = 0; j < item.embedding.length; j++) {
+      if (typeof item.embedding[j] !== 'number' || !Number.isFinite(item.embedding[j])) {
+        throw new TypeError(
+          `[openai-compatible] parseEmbedResponse: data[${i}].embedding[${j}] must be finite number`,
+        );
+      }
+    }
+    out.push({ embedding: item.embedding.slice() });
+  }
+  return { data: out };
+}
+
 export class OpenAICompatibleProtocol extends ProtocolBase {
-  /** @param {{eventBus:import('../../core/event-bus.js').EventBus}} opts */
+  /** @param {{eventBus:import('../../core/event-bus.js').EventBus, baseUrl?:string, apiKey?:string, defaultEmbeddingModel?:string}} opts */
   constructor(opts) {
     super({ ...opts, name: 'openai-compatible', kind: 'wire-format' });
+    // V4 cycle 4: P1-B2 last-mile. Required for embed() to POST
+    // /v1/embeddings. Optional for chat() — chat callers (deepseek /
+    // qwen / openai) pass these via the provider layer, not the
+    // protocol. embed() is the only method that uses these directly.
+    this._embedBaseUrl = typeof opts?.baseUrl === 'string' ? opts.baseUrl : null;
+    this._embedApiKey = typeof opts?.apiKey === 'string' ? opts.apiKey : null;
+    this._defaultEmbeddingModel =
+      typeof opts?.defaultEmbeddingModel === 'string' && opts.defaultEmbeddingModel.length > 0
+        ? opts.defaultEmbeddingModel
+        : 'text-embedding-3-small';
   }
 
   async _doBuildRequest(messages, options, model) {
@@ -123,12 +191,90 @@ export class OpenAICompatibleProtocol extends ProtocolBase {
   async _doParseToolCallDelta(_delta) {
     return { content: '', tool_calls: [] }; // STUB — PR 9
   }
+
+  /**
+   * V4 cycle 4: OpenAI `/v1/embeddings` end-to-end wire.
+   *   - Builds the request body (P1-B2 wire-format).
+   *   - POSTs to `${baseUrl}/v1/embeddings` with Bearer auth.
+   *   - Parses `data.data[i].embedding` into a flat list of vectors.
+   *   - Wrapped via ProtocolBase._wrap so the public surface stays
+   *     `{ok, value}` (ErrorHandler convention) and never throws.
+   *   - LLM gate (ADR-009): callers MUST mock fetch. No real network.
+   *
+   * @param {string[]} texts
+   * @param {{model?:string, encoding_format?:string, fetchImpl?:Function, timeoutMs?:number}} [options]
+   * @returns {Promise<{ok:true,value:number[][]}|{ok:false,error:{message:string}}>}
+   */
+  async embed(texts, options = {}) {
+    return this._wrap('embed', async () => {
+      if (!this._embedBaseUrl) {
+        throw new Error(
+          '[openai-compatible] embed: constructor opts.baseUrl is required (use the factory)',
+        );
+      }
+      if (!this._embedApiKey) {
+        throw new Error(
+          '[openai-compatible] embed: constructor opts.apiKey is required (use the factory)',
+        );
+      }
+      const opts = options && typeof options === 'object' ? options : {};
+      const body = buildEmbedRequestBody(texts, {
+        ...opts,
+        model: opts.model || this._defaultEmbeddingModel,
+      });
+      const fetchImpl = typeof opts.fetchImpl === 'function' ? opts.fetchImpl : globalThis.fetch;
+      const timeoutMs = Number.isInteger(opts.timeoutMs) ? opts.timeoutMs : 60000;
+      const url = `${this._embedBaseUrl.replace(/\/+$/, '')}/v1/embeddings`;
+      const res = await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this._embedApiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal:
+          typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+            ? AbortSignal.timeout(timeoutMs)
+            : undefined,
+      });
+      if (!res || typeof res.ok !== 'boolean') {
+        throw new Error('[openai-compatible] embed: fetch returned no response');
+      }
+      if (!res.ok) {
+        const errBody = await safeReadError(res);
+        throw new Error(
+          `[openai-compatible] embed: HTTP ${res.status} ${res.statusText || ''} ${errBody}`.trim(),
+        );
+      }
+      const raw = await res.json();
+      const parsed = parseEmbedResponseBody(raw);
+      // Flatten to number[][] so downstream consumers (vector backend DI
+      // seam) get the canonical shape directly: texts[i] → vectors[i].
+      return parsed.data.map((d) => d.embedding);
+    });
+  }
+}
+
+/** Best-effort read of an error response body. Never throws. */
+async function safeReadError(res) {
+  try {
+    if (typeof res.text === 'function') {
+      const t = await res.text();
+      return t ? t.slice(0, 500) : '';
+    }
+    return '';
+  } catch {
+    return '';
+  }
 }
 
 /**
  * Factory: IProtocol-shaped object backed by an OpenAICompatibleProtocol instance.
  * Mirrors the IProvider.validate pattern: validate(protocol) checks name + 5 methods.
- * @param {{eventBus:import('../../core/event-bus.js').EventBus}} opts
+ * V4 cycle 4: also exposes embed() (P1-B2 last-mile) for direct consumers (e2e,
+ * vector backend DI seam). Chat-only callers (deepseek/qwen/openai) can keep
+ * calling this factory with { eventBus } only — embed is unused on their path.
+ * @param {{eventBus:import('../../core/event-bus.js').EventBus, baseUrl?:string, apiKey?:string, defaultEmbeddingModel?:string}} opts
  */
 export function createOpenAICompatibleProtocol(opts) {
   const i = new OpenAICompatibleProtocol(opts);
@@ -139,5 +285,6 @@ export function createOpenAICompatibleProtocol(opts) {
     parseStreamChunk: i.parseStreamChunk.bind(i),
     buildToolCallMessage: i.buildToolCallMessage.bind(i),
     parseToolCallDelta: i.parseToolCallDelta.bind(i),
+    embed: i.embed.bind(i),
   };
 }

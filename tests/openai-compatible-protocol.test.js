@@ -312,3 +312,162 @@ describe('streaming stubs + event emission (PR 9 / ProtocolBase)', () => {
     assert.ok(ev[3].p.error);
   });
 });
+
+describe('embed() (V4 cycle 4: P1-B2 openai /v1/embeddings wire)', () => {
+  let origFetch;
+  const ok = (body) => ({
+    ok: true,
+    status: 200,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  });
+  const httpErr = (status, body) => ({
+    ok: false,
+    status,
+    statusText: 'Bad Request',
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  });
+
+  beforeEach(() => {
+    origFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  test('happy: real wire (URL/method/Authorization/body) + parses data[i].embedding', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({
+      eventBus: bus,
+      baseUrl: 'https://api.openai.com',
+      apiKey: 'sk-test',
+    });
+    const calls = [];
+    globalThis.fetch = (...a) => {
+      calls.push(a);
+      return Promise.resolve(
+        ok({
+          object: 'list',
+          data: [
+            { object: 'embedding', index: 0, embedding: [0.1, 0.2, 0.3, 0.4] },
+            { object: 'embedding', index: 1, embedding: [0.5, 0.6, 0.7, 0.8] },
+          ],
+          model: 'text-embedding-3-small',
+          usage: { prompt_tokens: 2, total_tokens: 2 },
+        }),
+      );
+    };
+    const r = await p.embed(['hello', 'world']);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.value, [
+      [0.1, 0.2, 0.3, 0.4],
+      [0.5, 0.6, 0.7, 0.8],
+    ]);
+    assert.equal(calls.length, 1);
+    const [url, init] = calls[0];
+    assert.equal(url, 'https://api.openai.com/v1/embeddings');
+    assert.equal(init.method, 'POST');
+    assert.equal(init.headers['Content-Type'], 'application/json');
+    assert.equal(init.headers.Authorization, 'Bearer sk-test');
+    const body = JSON.parse(init.body);
+    assert.deepEqual(body.input, ['hello', 'world']);
+    assert.equal(body.model, 'text-embedding-3-small');
+  });
+
+  test('custom model + encoding_format pass through to request body', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({
+      eventBus: bus,
+      baseUrl: 'https://api.openai.com',
+      apiKey: 'sk-x',
+      defaultEmbeddingModel: 'text-embedding-3-small',
+    });
+    let sent;
+    globalThis.fetch = (_u, init) => {
+      sent = JSON.parse(init.body);
+      return Promise.resolve(ok({ data: [{ embedding: [0.1] }] }));
+    };
+    await p.embed(['hi'], { model: 'text-embedding-3-large', encoding_format: 'float' });
+    assert.equal(sent.model, 'text-embedding-3-large');
+    assert.equal(sent.encoding_format, 'float');
+  });
+
+  test('error isolation: HTTP 400 from server → ok:false, never throws', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({
+      eventBus: bus,
+      baseUrl: 'https://api.openai.com',
+      apiKey: 'sk-x',
+    });
+    globalThis.fetch = () => Promise.resolve(httpErr(400, { error: { message: 'invalid input' } }));
+    const r = await p.embed(['bad']);
+    assert.equal(r.ok, false);
+    assert.match(r.error.message, /HTTP 400/);
+  });
+
+  test('error isolation: fetch throws → ok:false, never throws', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({
+      eventBus: bus,
+      baseUrl: 'https://api.openai.com',
+      apiKey: 'sk-x',
+    });
+    globalThis.fetch = () => Promise.reject(new Error('ECONNREFUSED'));
+    const r = await p.embed(['x']);
+    assert.equal(r.ok, false);
+    assert.match(r.error.message, /ECONNREFUSED/);
+  });
+
+  test('error isolation: malformed response (no data[]) → ok:false, never throws', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({
+      eventBus: bus,
+      baseUrl: 'https://api.openai.com',
+      apiKey: 'sk-x',
+    });
+    globalThis.fetch = () => Promise.resolve(ok({ object: 'list' }));
+    const r = await p.embed(['x']);
+    assert.equal(r.ok, false);
+    assert.match(r.error.message, /data is empty/);
+  });
+
+  test('missing baseUrl → ok:false, never throws (constructor guard)', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({ eventBus: bus, apiKey: 'sk-x' });
+    const r = await p.embed(['x']);
+    assert.equal(r.ok, false);
+    assert.match(r.error.message, /baseUrl is required/);
+  });
+
+  test('empty texts array → ok:false, never throws (validation)', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({
+      eventBus: bus,
+      baseUrl: 'https://api.openai.com',
+      apiKey: 'sk-x',
+    });
+    const r = await p.embed([]);
+    assert.equal(r.ok, false);
+    assert.match(r.error.message, /texts must be non-empty/);
+  });
+
+  test('events: PROVIDER_CALL_BEFORE/AFTER fire on embed() (phase=embed)', async () => {
+    const bus = new EventBus();
+    const p = createOpenAICompatibleProtocol({
+      eventBus: bus,
+      baseUrl: 'https://api.openai.com',
+      apiKey: 'sk-x',
+    });
+    const ev = [];
+    bus.on('provider:call:before', (q) => ev.push({ t: 'before', p: q.phase }));
+    bus.on('provider:call:after', (q) => ev.push({ t: 'after', p: q.phase }));
+    bus.on('provider:call:error', (q) => ev.push({ t: 'error', p: q.phase }));
+    globalThis.fetch = () => Promise.resolve(ok({ data: [{ embedding: [0.1] }] }));
+    await p.embed(['x']);
+    assert.deepEqual(
+      ev.map((e) => `${e.t}:${e.p}`),
+      ['before:embed', 'after:embed'],
+    );
+  });
+});
