@@ -35,6 +35,7 @@ import crypto from 'node:crypto';
 import { evolutionBus } from './_bus.js';
 import { EVENTS } from '../core/events.js';
 import { diagnose as runDiagnose } from './diagnose.js';
+import { validateProposalPath } from './path-validator.js';
 
 // LLM gate (ADR-009): propose (default path) is rule-based, no LLM.
 export const LLM_REQUIRES_APPROVAL = false;
@@ -140,6 +141,17 @@ function newProposalId(category, name) {
 function buildProposal(category, name) {
   const tmpl = TARGET_TEMPLATES[category];
   const target = tmpl(name);
+  // Defense in depth (--version ghost-dir bug, 2026-06-18): a catalogue item
+  // name like `--evil` would produce a path with a leading-`-` component
+  // (e.g. `plugin/--evil.js`). Reject up front so apply never gets a bad
+  // path; throw with a category+name-scoped error for the PM to triage.
+  const pathCheck = validateProposalPath(target.path);
+  if (!pathCheck.ok) {
+    throw new Error(
+      `[evolution/propose] generated target.path is invalid for ` +
+        `${category}/${name}: ${pathCheck.reason}`,
+    );
+  }
   const files_added = [{ path: target.path, lines_estimated: 30 }];
   // P2c-1 (2026-06-18): when a template provides `content` (e.g. plugin
   // manifest stub), attach it to files_added[0] so apply can write a real

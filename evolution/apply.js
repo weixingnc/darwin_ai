@@ -32,6 +32,7 @@ import { evolutionBus } from './_bus.js';
 import { EVENTS } from '../core/events.js';
 import { _internal as seInternal } from '../core/self-evolution.js';
 import { writeAuditLog } from './audit.js';
+import { validateProposalPath } from './path-validator.js';
 
 export const LLM_REQUIRES_APPROVAL = false;
 
@@ -72,9 +73,19 @@ function validateProposal(proposal) {
   if (!Array.isArray(proposal.files_added) || proposal.files_added.length === 0) {
     throw new TypeError('[evolution/apply] proposal.files_added must be a non-empty array');
   }
-  for (const f of proposal.files_added) {
+  for (let i = 0; i < proposal.files_added.length; i += 1) {
+    const f = proposal.files_added[i];
     if (!f || typeof f.path !== 'string' || !f.path) {
-      throw new TypeError('[evolution/apply] each files_added entry needs .path string');
+      throw new TypeError(`[evolution/apply] files_added[${i}] needs .path string`);
+    }
+    // Defense in depth (--version ghost-dir bug, 2026-06-18):
+    // path.dirname() + mkdirSync(..., {recursive:true}) accepted
+    // '--version/_/foo.js' and created ./--version/_/ in the repo
+    // root. validateProposalPath catches this class of input before
+    // any fs.writeFileSync touches the working tree.
+    const pathCheck = validateProposalPath(f.path);
+    if (!pathCheck.ok) {
+      throw new TypeError(`[evolution/apply] files_added[${i}] path invalid: ${pathCheck.reason}`);
     }
   }
 }
