@@ -152,6 +152,11 @@ describe('qwen R1 — Darwin self-evolution e2e (V8 cycle 1)', () => {
       // V3 explicitly emits null (DashScope wire shape) — we surface as null,
       // not '', so callers can distinguish "not invoked" from "empty text".
       assert.equal(r.value.usage.reasoning, null);
+      // V9.1 raw preservation: raw wire shape stays accessible alongside
+      // the v2-unified usage.reasoning surface. Symmetric to case 2 (R1)
+      // which asserts the string content. V3 null on the wire is null
+      // on raw too — no transform, no '' substitution.
+      assert.equal(r.value.raw.choices[0].message.reasoning_content, null);
     } finally {
       restoreFetch();
     }

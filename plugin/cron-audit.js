@@ -9,6 +9,17 @@
  *     plugin/feishu-notify as a Feishu interactive card to the
  *     configured target — completing the cron → audit → card chain.
  *
+ * Card theme for the heartbeat (V9.1 clarification):
+ *   outcome='info' intentionally maps to BLUE (info-level audit),
+ *   NOT green — the audit-theme heuristic in
+ *   skill/examples/feishu-card.js (themeOf for topic='evolution:audit')
+ *   only treats outcome=ok / success / commit / applied as green;
+ *   warn → orange, error/fail/failed → red, everything else (incl.
+ *   'info') → blue. The cron heartbeat is informational, not a
+ *   commit/success signal, so blue is the honest surface.
+ *   (V7.2 commit message eb567dc body L50 was wrong to claim
+ *   'theme=green for info' — corrected here in V9.1.)
+ *
  * The chain in production:
  *   setInterval tick → cron:tick → cron-audit._onCronTick
  *     → bus.emit('evolution:audit', {...})

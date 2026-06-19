@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os';
 import { EventBus } from '../core/event-bus.js';
 import { EVENTS } from '../core/events.js';
 import { ConfigResolver } from '../core/config-resolver.js';
-import { DeepSeekProvider } from '../deepseek.js';
+import { DeepSeekProvider } from './deepseek.js';
 
 let origFetch;
 let calls;

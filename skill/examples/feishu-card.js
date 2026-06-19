@@ -30,26 +30,18 @@
  * Anything else is normalised to 'blue' and the original is logged to
  * stderr (best-effort; never throws).
  *
- * API + V8.2 execute-shape contract:
- *   - skill.execute(input, context)    — STANDARD skill contract. Returns
- *       `{ output: string }` where `output` is `JSON.stringify(card)`.
- *       Single-key shape matches the dominant 4/6 sibling pattern
- *       (hello-world / summarizer / translator use `{output: string}`;
- *       commit-message / test-generator / code-review use multi-key
- *       with `output` always as the primary string). V8.2 collapses
- *       feishu-card to the single-key pattern for consistency.
- *   - buildCard(input, options?)       — DIRECT entry for non-skill callers
- *       (e.g. plugin/feishu-notify). Returns the rich shape
- *       `{ output, card, theme, stats }` so callers needing the
- *       structured card object can use it directly without re-parsing
- *       the stringified output. `output` is still `JSON.stringify(card)`.
- *   - themeOf(topic, payload)          — exported helper for plugin reuse
- *   - fieldsOf(topic, payload)         — exported helper for plugin reuse
+ * Exports:
+ *   - feishuCard                — the skill (with execute()).
+ *   - buildCard(input, options) — direct programmatic entry; returns the
+ *       rich shape `{ output, card, theme, stats }`. Use this when you
+ *       need the structured card object (e.g. plugin/feishu-notify).
+ *   - themeOf(topic, payload)   — exported helper for plugin reuse.
+ *   - fieldsOf(topic, payload)  — exported helper for plugin reuse.
  *
- * Why the split: skill `execute()` consumers (LLM-facing call sites) only
- * need a string. Programmatic consumers (plugin/feishu-notify) need the
- * structured card to push via platform/feishu. Exposing `buildCard()`
- * covers both without forcing execute() callers to JSON.parse a string.
+ * V8.2 contract details (execute shape split, migration guide, sibling
+ * pattern alignment) live in docs/skill-contract.md. Read it before
+ * changing the execute() return shape — there are V8.2 guard tests that
+ * lock the single-key `{ output: string }` contract.
  */
 
 import process from 'node:process';
