@@ -23,18 +23,30 @@ describe('feishu-card — catalog contract', () => {
     assert.ok(feishuCard.systemPromptHint.length > 0);
   });
 
-  test('execute() returns {output:string, card:object, theme:string, stats:object}', async () => {
+  test('execute() returns {output:string} single-key contract (V8.2)', async () => {
     const r = await feishuCard.execute({
       topic: 'evolution:apply:after',
       subject: 'V7.1',
       tag: 'tag-v7c1',
     });
+    // V8.2 single-key: {output: string} parallel to hello-world / summarizer /
+    // translator. Programmatic callers (plugin/feishu-notify) get the rich
+    // shape via buildCard() import, not via execute().
+    assert.equal(typeof r, 'object');
+    assert.deepEqual(
+      Object.keys(r).sort(),
+      ['output'],
+      'execute() must return single-key {output}',
+    );
     assert.equal(typeof r.output, 'string');
-    assert.equal(typeof r.card, 'object');
-    assert.equal(typeof r.theme, 'string');
-    assert.equal(typeof r.stats, 'object');
-    assert.equal(r.stats.has_header, true);
-    assert.ok(r.stats.elements >= 2, 'at least divider + elements');
+    // The output string is JSON.stringify(card); round-trip parses to the
+    // buildCard() card object so consumers can JSON.parse if they need to.
+    const reparsed = JSON.parse(r.output);
+    const built = buildCard({
+      topic: 'evolution:apply:after',
+      payload: { subject: 'V7.1', tag: 'tag-v7c1' },
+    });
+    assert.deepEqual(reparsed, built.card);
   });
 });
 
@@ -201,19 +213,25 @@ describe('feishu-card — buildCard()', () => {
 describe('feishu-card — execute() input guards', () => {
   test('execute() with no input still produces a card (graceful default)', async () => {
     const r = await feishuCard.execute();
+    // V8.2 single-key: only `output` key
     assert.equal(typeof r.output, 'string');
-    assert.equal(typeof r.card, 'object');
-    assert.equal(r.theme, 'blue');
+    assert.deepEqual(Object.keys(r).sort(), ['output']);
+    // round-trip: parse and verify default blue theme is on the card header
+    const reparsed = JSON.parse(r.output);
+    assert.equal(reparsed.header.template, 'blue');
   });
 
   test('execute() with null input still produces a card', async () => {
     const r = await feishuCard.execute(null);
-    assert.equal(typeof r.card, 'object');
+    assert.equal(typeof r.output, 'string');
+    assert.deepEqual(Object.keys(r).sort(), ['output']);
   });
 
   test('execute() with non-object input coerces via topic="evolution:unknown" → blue', async () => {
     const r = await feishuCard.execute('not an object');
-    assert.equal(r.theme, 'blue');
+    assert.equal(typeof r.output, 'string');
+    const reparsed = JSON.parse(r.output);
+    assert.equal(reparsed.header.template, 'blue');
   });
 
   test('execute() with context.options.theme forwards to buildCard', async () => {
@@ -221,6 +239,20 @@ describe('feishu-card — execute() input guards', () => {
       { topic: 'evolution:apply:after', subject: 'x' },
       { options: { theme: 'red' } },
     );
-    assert.equal(r.theme, 'red');
+    const reparsed = JSON.parse(r.output);
+    assert.equal(reparsed.header.template, 'red');
+  });
+
+  test('execute() does NOT expose card/theme/stats keys (single-key contract)', async () => {
+    // V8.2 guard: ensure execute() does not regress to multi-key. If we add
+    // back card/theme/stats in execute(), this test will fail and force a
+    // V8.2-aware redesign.
+    const r = await feishuCard.execute({
+      topic: 'evolution:apply:after',
+      subject: 'x',
+    });
+    assert.equal(r.card, undefined, 'execute() must not return card');
+    assert.equal(r.theme, undefined, 'execute() must not return theme');
+    assert.equal(r.stats, undefined, 'execute() must not return stats');
   });
 });

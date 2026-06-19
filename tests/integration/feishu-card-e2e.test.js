@@ -72,11 +72,17 @@ describe('feishu-card e2e (a) — skill round-trip', () => {
     assert.equal(override.theme, 'red');
     const empty = buildCard({ topic: 'evolution:apply:after', payload: {} });
     assert.equal(empty.theme, 'green');
+    // V8.2 single-key contract: skill execute() returns `{ output: string }`.
+    // Programmatic consumers (plugin/feishu-notify) get the rich shape via
+    // buildCard() import. For the theme assertion, JSON.parse(out.output)
+    // gives the card, then `.header.template` is the theme.
     const viaExecute = await feishuCard.execute(
       { topic: 'evolution:apply:after', subject: 'x' },
       { options: { theme: 'orange' } },
     );
-    assert.equal(viaExecute.theme, 'orange');
+    assert.equal(typeof viaExecute.output, 'string');
+    const reparsed = JSON.parse(viaExecute.output);
+    assert.equal(reparsed.header.template, 'orange');
   });
 });
 

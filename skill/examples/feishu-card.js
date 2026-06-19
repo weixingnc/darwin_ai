@@ -30,11 +30,26 @@
  * Anything else is normalised to 'blue' and the original is logged to
  * stderr (best-effort; never throws).
  *
- * API:
- *   - skill.execute(input, context)    — standard skill contract
- *   - buildCard(input, options?)       — direct entry for non-skill callers
+ * API + V8.2 execute-shape contract:
+ *   - skill.execute(input, context)    — STANDARD skill contract. Returns
+ *       `{ output: string }` where `output` is `JSON.stringify(card)`.
+ *       Single-key shape matches the dominant 4/6 sibling pattern
+ *       (hello-world / summarizer / translator use `{output: string}`;
+ *       commit-message / test-generator / code-review use multi-key
+ *       with `output` always as the primary string). V8.2 collapses
+ *       feishu-card to the single-key pattern for consistency.
+ *   - buildCard(input, options?)       — DIRECT entry for non-skill callers
+ *       (e.g. plugin/feishu-notify). Returns the rich shape
+ *       `{ output, card, theme, stats }` so callers needing the
+ *       structured card object can use it directly without re-parsing
+ *       the stringified output. `output` is still `JSON.stringify(card)`.
  *   - themeOf(topic, payload)          — exported helper for plugin reuse
  *   - fieldsOf(topic, payload)         — exported helper for plugin reuse
+ *
+ * Why the split: skill `execute()` consumers (LLM-facing call sites) only
+ * need a string. Programmatic consumers (plugin/feishu-notify) need the
+ * structured card to push via platform/feishu. Exposing `buildCard()`
+ * covers both without forcing execute() callers to JSON.parse a string.
  */
 
 import process from 'node:process';
@@ -173,6 +188,12 @@ function noteTextFor(topic, payload) {
 /**
  * Build a Feishu interactive card from a Darwin evolution event.
  *
+ * V8.2 contract: `buildCard()` is the programmatic entry point that returns
+ * the rich shape. Skill `execute()` returns only `{ output: string }` (single
+ * key, parallel to hello-world / summarizer / translator). Callers needing
+ * the structured card object should import `buildCard()` directly — this
+ * is the path `plugin/feishu-notify.js` uses (V7.1).
+ *
  * @param {object} input
  * @param {'evolution:apply:after'|'evolution:audit'|string} input.topic
  * @param {object} input.payload  the event payload (subject, tag,
@@ -221,7 +242,7 @@ function buildCard(input, options = {}) {
 export const feishuCard = {
   name: 'feishu-card',
   description:
-    'Build a Feishu interactive card JSON from a Darwin evolution event payload (v7 P2-ext).',
+    'Build a Feishu interactive card JSON from a Darwin evolution event payload (v7 P2-ext). Execute returns stringified card; use buildCard() for structured access.',
   triggers: ['feishu card', 'interactive card', 'card message', '飞书卡片', '交互卡片'],
   systemPromptHint:
     'User wants a Feishu interactive card. Build a card with header (color) + elements (fields/divider/note) per the event type.',
@@ -232,7 +253,12 @@ export const feishuCard = {
         : {};
     const event = input && typeof input === 'object' ? input : {};
     const topic = nonEmptyString(event.topic) || nonEmptyString(event.kind) || 'evolution:unknown';
-    return buildCard({ topic, payload: event }, opts);
+    // V8.2 single-key contract: skill execute() returns `{ output: string }`
+    // parallel to hello-world / summarizer / translator. For programmatic
+    // consumers that need the structured card object, import `buildCard()`
+    // directly — it returns the full `{ output, card, theme, stats }` shape.
+    const built = buildCard({ topic, payload: event }, opts);
+    return { output: built.output };
   },
 };
 
