@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os';
 import { EventBus } from '../core/event-bus.js';
 import { EVENTS } from '../core/events.js';
 import { ConfigResolver } from '../core/config-resolver.js';
-import { QwenProvider } from '../qwen.js';
+import { QwenProvider } from './qwen.js';
 
 let origFetch;
 let calls;
@@ -67,6 +67,42 @@ const FX_CHAT = {
   usage: { prompt_tokens: 8, completion_tokens: 9, total_tokens: 17 },
 };
 const FX_ERR = { error: { message: 'invalid api key', type: 'invalid_request_error' } };
+
+// V8 cycle 1 P1: R1 reasoning fixtures (Qwen3 / QwQ with enable_thinking=true).
+// DashScope OpenAI-compatible-mode exposes `choices[0].message.reasoning_content`
+// parallel to deepseek-reasoner V4 closure.
+const FX_QWEN_R1 = {
+  id: 'chatcmpl-qwen-r1',
+  object: 'chat.completion',
+  created: 1700000001,
+  model: 'qwen3-max',
+  choices: [
+    {
+      index: 0,
+      message: {
+        role: 'assistant',
+        content: '4',
+        reasoning_content: 'thinking: 2+2=4. so 4.',
+      },
+      finish_reason: 'stop',
+    },
+  ],
+  usage: { prompt_tokens: 4, completion_tokens: 4, total_tokens: 8 },
+};
+const FX_QWEN_V3 = {
+  id: 'chatcmpl-qwen-v3',
+  object: 'chat.completion',
+  created: 1700000002,
+  model: 'qwen-turbo',
+  choices: [
+    {
+      index: 0,
+      message: { role: 'assistant', content: 'hi from qwen-turbo', reasoning_content: null },
+      finish_reason: 'stop',
+    },
+  ],
+  usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+};
 
 const mk = (o = {}) => {
   const bus = new EventBus();
@@ -169,6 +205,82 @@ describe('QwenProvider — chat()', () => {
     bus.on(EVENTS.PROVIDER_CALL_ERROR, () => errCount++);
     await p.chat([{ role: 'user', content: 'hi' }]);
     assert.equal(errCount, 1);
+  });
+});
+
+describe('QwenProvider — V8.1 R1 reasoning surface', () => {
+  setupHooks();
+  test('R1 reasoning: response.reasoning_content → usage.reasoning', async () => {
+    const { p } = mk({ defaultModel: 'qwen3-max' });
+    install(() => ok(FX_QWEN_R1));
+    const r = await p.chat([{ role: 'user', content: '2+2' }]);
+    assert.equal(r.ok, true);
+    assert.equal(r.value.content, '4');
+    assert.equal(r.value.usage.reasoning, 'thinking: 2+2=4. so 4.');
+    // raw wire shape preserved
+    assert.equal(r.value.raw.choices[0].message.reasoning_content, 'thinking: 2+2=4. so 4.');
+  });
+  test('V3 (qwen-turbo): reasoning_content null → usage.reasoning null', async () => {
+    const { p } = mk({ defaultModel: 'qwen-turbo' });
+    install(() => ok(FX_QWEN_V3));
+    const r = await p.chat([{ role: 'user', content: 'hi' }]);
+    assert.equal(r.ok, true);
+    assert.equal(r.value.content, 'hi from qwen-turbo');
+    // V3 explicitly emits null (DashScope wire shape) — we surface as null,
+    // not '', so callers can distinguish "not invoked" from "empty text".
+    assert.equal(r.value.usage.reasoning, null);
+  });
+  test('R1 reasoning edge: choices[0] has no message → usage.reasoning null (no throw)', async () => {
+    const { p } = mk();
+    const FX_NO_MSG = {
+      id: 'no-msg',
+      model: 'qwen3-max',
+      choices: [{ index: 0, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    };
+    install(() => ok(FX_NO_MSG));
+    const r = await p.chat([{ role: 'user', content: 'x' }]);
+    assert.equal(r.ok, true);
+    assert.equal(r.value.usage.reasoning, null);
+  });
+  test('R1 reasoning edge: reasoning_content is not a string → null (no throw)', async () => {
+    const { p } = mk();
+    const FX_NONSTR = {
+      id: 'nonstr',
+      model: 'qwen3-max',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'ok', reasoning_content: 12345 },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    };
+    install(() => ok(FX_NONSTR));
+    const r = await p.chat([{ role: 'user', content: 'x' }]);
+    assert.equal(r.ok, true);
+    assert.equal(r.value.usage.reasoning, null);
+  });
+  test('R1 reasoning edge: reasoning_content is empty string → usage.reasoning "" (no throw)', async () => {
+    const { p } = mk();
+    const FX_EMPTY = {
+      id: 'empty',
+      model: 'qwen3-max',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'answer', reasoning_content: '' },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    };
+    install(() => ok(FX_EMPTY));
+    const r = await p.chat([{ role: 'user', content: 'x' }]);
+    assert.equal(r.ok, true);
+    // Empty string is a valid string → surfaced as-is (distinct from V3 null).
+    assert.equal(r.value.usage.reasoning, '');
   });
 });
 

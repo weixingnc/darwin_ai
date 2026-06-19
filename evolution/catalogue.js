@@ -137,6 +137,16 @@ const GROWTH_CANDIDATES = Object.freeze({
     // candidates are now installed). PM can add new candidates (e.g.
     // 'tracer' for distributed trace spans) when ready.
   ],
+  providers: [
+    // V4 cycle 3 (2026-06-19): 'deepseek-e2e' closure for deepseek-reasoner
+    //   R1 reasoning surface (e2e mock-fetch + ProviderRegistry + catalogue
+    //   sandboxed marker). Not a new provider — deepseek is in DEFAULTS.providers
+    //   already; the e2e closure just proves the R1 wire.
+    // V8 cycle 1 (2026-06-19): 'qwen-r1-e2e' closure for Qwen R1 reasoning
+    //   surface (Qwen3 / QwQ with enable_thinking=true). Not a new provider —
+    //   qwen is in DEFAULTS.providers already; this V8.1 e2e closure proves
+    //   the reasoning_content wire parity with deepseek-reasoner.
+  ],
 });
 
 function readJsonOrEmpty(file) {

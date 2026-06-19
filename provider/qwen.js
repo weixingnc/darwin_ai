@@ -15,6 +15,15 @@
  *     different wire format — Darwin can add a dedicated provider later)
  *   - stream(): out of scope for P1-B1 (P1-B2+)
  *
+ * V8 cycle 1 P1: Qwen R1-style reasoning surface (reasoning_content via
+ *   Qwen3 / QwQ models) — parallel to deepseek-reasoner V4 closure.
+ *   DashScope OpenAI-compatible-mode exposes `choices[0].message.reasoning_content`
+ *   when `enable_thinking=true` (Qwen3 / QwQ models). For V3 (qwen-turbo /
+ *   qwen-plus / qwen-max by default), reasoning_content is null. We surface
+ *   it as `usage.reasoning` (string | null) AND preserve raw for callers
+ *   that want the original wire shape. See extractQwenReasoningContent for
+ *   the defensive extraction logic.
+ *
  * A-3 lesson: protocol logic is delegated to `createOpenAICompatibleProtocol`
  *   (no second copy of `buildRequest` / `parseResponse` here).
  * A-4 lesson: config via ConfigResolver.get('provider-qwen'), never
@@ -37,6 +46,14 @@ const CHAT_PATH = '/compatible-mode/v1/chat/completions';
 const DEFAULT_TIMEOUT_MS = 60000;
 // DashScope OpenAI-compatible-mode catalogue (2026-06-15). Darwin self-evolves
 // this list over time as Qwen releases new models.
+//   V3 (default) — `qwen-turbo` / `qwen-plus` / `qwen-max`: reasoning_content
+//     is null unless `enable_thinking=true` is passed at request time.
+//   V8.1 R1-style — `qwen3-max` / `qwq-plus` (Qwen reasoning models): when
+//     called with `enable_thinking=true`, response carries a populated
+//     `choices[0].message.reasoning_content` field. Not yet listed in
+//     STATIC_MODELS — Darwin can self-evolve to extend the catalogue when
+//     these models become available (V8.1 is a thin R1-surface parity with
+//     deepseek-reasoner V4 closure, not a model rollout).
 const STATIC_MODELS = Object.freeze([
   'qwen-turbo', // default
   'qwen-plus',
@@ -102,6 +119,42 @@ async function fetchWithTimeout(url, init, timeoutMs) {
 }
 
 /**
+ * Extract Qwen R1 reasoning_content from a parsed raw response.
+ * Returns null when the field is absent (V3 / non-reasoning models) or
+ * non-string (malformed payload). Differs from deepseek (which returns '')
+ * because Qwen V3 explicitly emits `reasoning_content: null`, not the
+ * field being absent — `null` is the honest wire shape; we keep it.
+ * Defensive: never throws (v1 #4 try/catch lesson).
+ *
+ * @param {object} raw — parsed raw response body
+ * @returns {string|null} reasoning chain-of-thought or null
+ */
+function extractQwenReasoningContent(raw) {
+  try {
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+    if (!Array.isArray(raw.choices) || raw.choices.length === 0) {
+      return null;
+    }
+    const first = raw.choices[0];
+    if (!first || typeof first !== 'object') {
+      return null;
+    }
+    const m = first.message;
+    if (!m || typeof m !== 'object') {
+      return null;
+    }
+    if (typeof m.reasoning_content !== 'string') {
+      return null;
+    }
+    return m.reasoning_content;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * QwenProvider: OpenAI-compatible LLM provider for Aliyun DashScope.
  *
  * Constructor opts: baseUrl, apiKey, defaultModel, eventBus (req), protocol?, timeoutMs?
@@ -155,10 +208,19 @@ export class QwenProvider extends ProviderBase {
       err.cause = parsed.error;
       throw err;
     }
+    // V8.1 R1 reasoning surface: extract `reasoning_content` from the first
+    // choice's message (Qwen3 / QwQ with enable_thinking=true). Surface as
+    // `usage.reasoning` so downstream callers (diagnose / propose / audit)
+    // can audit reasoning chains uniformly. Preserve raw for callers that
+    // want the original wire shape. For V3 (qwen-turbo / qwen-plus /
+    // qwen-max by default), reasoning_content is null and `usage.reasoning`
+    // is null too — explicit surface (not ''), so callers can distinguish
+    // "reasoning ran but produced empty text" from "reasoning not invoked".
+    const reasoning = extractQwenReasoningContent(raw);
     return {
       content: parsed.value.content,
       toolCalls: parsed.value.tool_calls,
-      usage: parsed.value.usage,
+      usage: { ...(parsed.value.usage || {}), reasoning },
       raw,
     };
   }
