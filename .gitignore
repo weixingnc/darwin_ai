@@ -78,5 +78,10 @@ tmp/audit/
 *.lcov
 junit.xml
 
+# Stray flag-like directories (the --version ghost-dir bug, 2026-06-18):
+# anything starting with `--` at any depth is almost certainly a typo,
+# tool misuse, or a Darwin self-evolve misadventure — never real source.
+--*/
+
 # Husky
 .husky/_/
