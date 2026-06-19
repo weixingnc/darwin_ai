@@ -42,12 +42,14 @@ test('P2g: loadCatalogue() returns DEFAULTS when no overlay exists', () => {
   // W4-1 (2026-06-18): baseline plugin catalogue now 3 (logger + audit
   // + metrics), not 2. See evolution/catalogue.js DEFAULTS.plugins.
   // W6-2: now 5 (logger + audit + metrics + rate-limiter + llm-cache).
-  assert.equal(cat.plugins.length, 5);
+  // V6-1 (2026-06-19): now 6 (+ feishu-notify).
+  assert.equal(cat.plugins.length, 6);
   assert.ok(cat.plugins.includes('logger'));
   assert.ok(cat.plugins.includes('audit'));
   assert.ok(cat.plugins.includes('metrics'));
   assert.ok(cat.plugins.includes('rate-limiter'));
   assert.ok(cat.plugins.includes('llm-cache'));
+  assert.ok(cat.plugins.includes('feishu-notify'));
 });
 
 test('P2g: loadCatalogue() merges overlay file (additive)', () => {
@@ -56,6 +58,7 @@ test('P2g: loadCatalogue() merges overlay file (additive)', () => {
   const cat = loadCatalogue({ file });
   assert.deepEqual([...cat.plugins].sort(), [
     'audit',
+    'feishu-notify',
     'llm-cache',
     'logger',
     'metrics',

@@ -236,7 +236,10 @@ describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
     // W6-2 (2026-06-18): llm-cache joined the baseline — 5 in
     // DEFAULTS, plus the MISSING_PLUGIN grown in this test, so
     // total = 6.
-    assert.equal(report.current.plugins.length, 6);
+    // V6-1 (2026-06-19): feishu-notify joined the baseline — 6 in
+    // DEFAULTS, plus the MISSING_PLUGIN grown in this test, so
+    // total = 7.
+    assert.equal(report.current.plugins.length, 7);
   });
 
   test('git tag is reachable in the worktree + matches the rollback anchor for the apply', () => {

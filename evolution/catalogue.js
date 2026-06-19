@@ -87,9 +87,15 @@ const DEFAULTS = Object.freeze({
   // W6-2 (2026-06-18): added 'llm-cache' — fifth production plugin,
   // LRU+TTL cache for LLM responses (deterministic key from
   // messages+model, see plugin/llm-cache.js + plugin/llm-cache-key.js).
+  // V6-1 (2026-06-19): added 'feishu-notify' — sixth production plugin,
+  // Darwin self-evolution events → Feishu DM push via platform/feishu.js
+  // (V5.1 real IM v1 wire). Subscribes to evolution:apply:after +
+  // evolution:audit, forwards formatted status messages to a configured
+  // open_id. Mirrors W6-2 precedent (data-only update to DEFAULTS).
   // Plugin order: example (logger) → audit (P2c-2) → metrics (W4-1)
-  //              → rate-limiter (W5-1) → llm-cache (W6-2).
-  plugins: ['logger', 'audit', 'metrics', 'rate-limiter', 'llm-cache'],
+  //              → rate-limiter (W5-1) → llm-cache (W6-2) →
+  //              feishu-notify (V6-1).
+  plugins: ['logger', 'audit', 'metrics', 'rate-limiter', 'llm-cache', 'feishu-notify'],
 });
 
 /**
@@ -109,9 +115,11 @@ const GROWTH_CANDIDATES = Object.freeze({
     // baseline catalogue now includes it. Growth candidates should
     // surface things that aren't yet installed.
     // W6-2 (2026-06-18): 'rate-limiter' and 'llm-cache' both moved to
-    // DEFAULTS.plugins after shipping. The list is currently empty
-    // (all candidates are now installed). PM can add new candidates
-    // (e.g. 'tracer' for distributed trace spans) when ready.
+    // DEFAULTS.plugins after shipping.
+    // V6-1 (2026-06-19): 'feishu-notify' also shipped (Darwin
+    // self-evolution events → Feishu DM push). The list is currently
+    // empty (all candidates are now installed). PM can add new
+    // candidates (e.g. 'tracer' for distributed trace spans) when ready.
   ],
 });
 
