@@ -30,6 +30,8 @@ import { selfEvolution } from '../../core/self-evolution.js';
 import { diagnose as diagnoseImpl } from '../../evolution/diagnose.js';
 import { propose as proposeImpl } from '../../evolution/propose.js';
 import { runSelfEvolve } from '../../evolution/self-evolve.js';
+// V17.1: cross-file audit query CLI
+import { handleAuditQuery } from './audit-query.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -302,6 +304,7 @@ const HANDLERS = {
   verify: handleVerify,
   rollback: handleRollback,
   audit: handleAudit,
+  audit_query: handleAuditQuery, // V17.1: cross-file audit query CLI
   learn: handleLearn,
   evolve: handleEvolve,
 };
