@@ -10,6 +10,7 @@
  * LLM gate (ADR-009): PR-S1 stub does NOT call LLM. The stub returns a
  * deterministic slice so callers can verify trigger + output shape without
  * network. P2 will replace `execute()` body with a provider.chat() call.
+ * **Contract (V10.5)**: execute() returns `{ output: string }` (single-key, standard). See `docs/skill-contract.md` for the full sibling shape table and migration guide.
  */
 
 export const summarizer = {

@@ -1,6 +1,7 @@
 /**
  * test-generator — Darwin skill: generate a test file stub for a given source file.
  * ADR-009 mechanical rule engine (LLM-free). Options: framework, module, minCases, includeNegative.
+ * **Contract (V10.5)**: execute() returns `{ output, suggested, stats }` (multi-key; `output` is the LLM-facing string, `suggested` + `stats` are programmatic hints). See `docs/skill-contract.md` for the full sibling shape table and migration guide.
  */
 export const testGenerator = {
   name: 'test-generator',

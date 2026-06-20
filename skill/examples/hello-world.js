@@ -12,6 +12,7 @@
  *   - systemPromptHint: context the LLM sees when this skill is loaded
  *   - execute(input, ctx) — async, returns { output } shape
  *
+ * **Contract (V10.5)**: execute() returns `{ output: string }` (single-key, standard). See `docs/skill-contract.md` for the full sibling shape table and migration guide.
  * LLM gate (ADR-009): no LLM call — pure mechanical response.
  */
 

@@ -8,6 +8,7 @@
  * Supports `target` parameter (e.g. 'en', 'zh', 'ja'); defaults to 'en'.
  *
  * LLM gate (ADR-009): PR-S1 stub does NOT call LLM.
+ * **Contract (V10.5)**: execute() returns `{ output: string }` (single-key, standard). See `docs/skill-contract.md` for the full sibling shape table and migration guide.
  */
 
 export const translator = {

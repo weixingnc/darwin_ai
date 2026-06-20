@@ -4,6 +4,7 @@
  * behind a TODO(p2) seam once SelfEvolution wires providers. ADR-009.
  * Input: string | context.diff | context.files=[{path, diff}].
  * Options (context.options): rules: string[]; maxLineLength: number (default 100).
+ * **Contract (V10.5)**: execute() returns `{ output, summary, issues }` (multi-key; `output` is the LLM-facing string, `summary` + `issues` are programmatic hints). See `docs/skill-contract.md` for the full sibling shape table and migration guide.
  */
 export const codeReview = {
   name: 'code-review',

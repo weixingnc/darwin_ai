@@ -1,4 +1,9 @@
-/** commit-message — Darwin skill: generate a conventional commit message from a diff. ADR-009 mechanical stub. Options: type, scope, breaking. */
+/**
+ * commit-message — Darwin skill: generate a conventional commit message from a diff.
+ * ADR-009 mechanical stub. Options: type, scope, breaking.
+ *
+ * **Contract (V10.5)**: execute() returns `{ output, suggested, stats }` (multi-key; `output` is the LLM-facing string, `suggested` + `stats` are programmatic hints; `issues: []` may appear on the `invalid` input path). See `docs/skill-contract.md` for the full sibling shape table and migration guide.
+ */
 export const commitMessage = {
   name: 'commit-message',
   description: 'Generate a conventional commit message from a diff (v3+ P1 catalog item).',
