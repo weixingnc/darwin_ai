@@ -300,18 +300,15 @@ describe('QwenProvider — listModels + embed', () => {
   });
 });
 
-// V9.1 housekeeping note:
-// The 'reads provider-qwen config + default baseUrl to dashscope' test
-// in this describe block has a pre-existing failure (V3 P1 era infra gap,
-// NOT introduced by V8.1). ConfigResolver doesn't parse YAML — it only
-// understands JSON. The test writes a YAML file then constructs
-// `new ConfigResolver({ configPath })` and expects the resolver to read
-// `provider-qwen.base_url` / `api_key` / `default_model` / `timeout_ms`,
-// but YAML syntax means the resolver sees no `provider-qwen` key.
-//
-// V9.1 doesn't fix this — V9.1 is housekeeping, not infra. The fix
-// (ConfigResolver YAML support) is a separate cycle. The TODO stays
-// here so future readers don't think V8.1 introduced the failure.
+// V10.7 closed this V3 P1 era infra gap: ConfigResolver now supports a
+// single-file `configPath` option whose top-level keys are module names.
+// The mini YAML parser already handled 1-level nesting; V10.7 just wired
+// `configPath` into the constructor and get() layer chain (highest
+// priority, above codePath/userPath). See `tests/config-resolver.test.js`
+// for the 5 new unit tests covering this behavior. The previously
+// failing 'reads provider-qwen config + default baseUrl to dashscope'
+// test below now passes. V9.1 housekeeping note (V8.1 did NOT introduce
+// the failure) is preserved as a historical breadcrumb above.
 describe('QwenProvider — fromConfig (A-4 ConfigResolver)', () => {
   setupHooks();
   test('reads provider-qwen config + default baseUrl to dashscope', () => {

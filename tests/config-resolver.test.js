@@ -186,3 +186,70 @@ describe('ConfigResolver error handling', () => {
     assert.ok(cfg, 'should return empty config instead of throwing');
   });
 });
+
+describe('ConfigResolver configPath (V10.7 single-file config)', () => {
+  function makeSingleFileResolver(yaml, moduleName) {
+    if (!moduleName) {
+      moduleName = 'provider-demo';
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'darwin-cfg-cp-'));
+    const cfgPath = join(dir, 'config.yaml');
+    if (yaml) {
+      writeFileSync(cfgPath, yaml);
+    }
+    return { resolver: new ConfigResolver({ configPath: cfgPath }), dir, cfgPath };
+  }
+
+  test('reads module subtree from configPath file', () => {
+    const yaml = [
+      'provider-demo:',
+      '  base_url: https://example.com',
+      '  api_key: sk-cfg-xyz',
+      '  default_model: demo-pro',
+      '  timeout_ms: 12345',
+    ].join('\n');
+    const { resolver } = makeSingleFileResolver(yaml);
+    const cfg = resolver.get('provider-demo');
+    assert.equal(cfg.base_url, 'https://example.com');
+    assert.equal(cfg.api_key, 'sk-cfg-xyz');
+    assert.equal(cfg.default_model, 'demo-pro');
+    assert.equal(cfg.timeout_ms, 12345);
+  });
+
+  test('module absent from configPath file returns {} (no throw)', () => {
+    const { resolver } = makeSingleFileResolver('unrelated:\n  x: 1\n');
+    const cfg = resolver.get('provider-demo');
+    assert.deepEqual(cfg, {});
+  });
+
+  test('configPath file missing returns {} (no throw)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'darwin-cfg-missing-'));
+    const cfgPath = join(dir, 'does-not-exist.yaml');
+    const resolver = new ConfigResolver({ configPath: cfgPath });
+    const cfg = resolver.get('provider-demo');
+    assert.deepEqual(cfg, {});
+  });
+
+  test('configPath layer overrides codePath layer for same key', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'darwin-cfg-prio-'));
+    const codePath = join(dir, 'code');
+    mkdirSync(codePath, { recursive: true });
+    writeFileSync(join(codePath, 'provider-demo.yaml'), 'base_url: from-code\napi_key: sk-code');
+    const cfgPath = join(dir, 'config.yaml');
+    const yaml = ['provider-demo:', '  base_url: from-configPath'].join('\n');
+    writeFileSync(cfgPath, yaml);
+    const resolver = new ConfigResolver({ codePath, configPath: cfgPath });
+    const cfg = resolver.get('provider-demo');
+    assert.equal(cfg.base_url, 'from-configPath');
+    assert.equal(cfg.api_key, 'sk-code');
+  });
+
+  test('configPath layer honors ${VAR} expansion', () => {
+    process.env.CFG_PATH_TEST = 'expanded-via-configPath';
+    const yaml = ['provider-demo:', '  base_url: ${CFG_PATH_TEST}'].join('\n');
+    const { resolver } = makeSingleFileResolver(yaml);
+    const cfg = resolver.get('provider-demo');
+    assert.equal(cfg.base_url, 'expanded-via-configPath');
+    delete process.env.CFG_PATH_TEST;
+  });
+});

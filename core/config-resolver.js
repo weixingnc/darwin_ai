@@ -23,6 +23,8 @@ export class ConfigResolver {
     this.codePath = options.codePath || resolve('./config');
     this.userPath = options.userPath || join(homedir(), '.darwin');
     this.credPath = options.credPath || join(homedir(), '.darwin', '.env');
+    // V10.7: single-file config option. Useful for tests + tiny deployments.
+    this.configPath = options.configPath || null;
     this._cache = new Map();
   }
 
@@ -39,9 +41,13 @@ export class ConfigResolver {
       return this._cache.get(moduleName);
     }
 
+    // V10.7: configPath is highest-priority data layer (last in merge wins).
+    // data layers: code (lowest) -> user -> configPath (highest). env is special
+    // (only feeds into dollar-VAR expansion; deep merge skips _env key).
     const layers = [
       this._readFile(this._codeFile(moduleName)),
       this._readFile(this._userFile(moduleName)),
+      this._readConfigPath(moduleName),
       { _env: this._readEnv() },
     ];
     const merged = this._deepMerge(...layers);
@@ -64,6 +70,30 @@ export class ConfigResolver {
   }
 
   // ─── private ──────────────────────────────────────
+  /**
+   * V10.7: read a single-file config keyed by moduleName. Returns
+   * the module subtree (or {} on miss / missing file / parse fail).
+   * Highest priority layer -- overrides both codePath and userPath
+   * for the modules present in the file. Modules absent from the
+   * file transparently fall through to lower layers.
+   */
+  _readConfigPath(moduleName) {
+    if (!this.configPath) {
+      return {};
+    }
+    if (!existsSync(this.configPath)) {
+      return {};
+    }
+    let all;
+    try {
+      all = this._parseSimpleYaml(readFileSync(this.configPath, 'utf8'));
+    } catch (err) {
+      console.warn('[ConfigResolver] failed to load ' + this.configPath + ': ' + err.message);
+      return {};
+    }
+    return all[moduleName] || {};
+  }
+
   _codeFile(m) {
     return join(this.codePath, `${m}.yaml`);
   }
