@@ -19,7 +19,9 @@
  *
  * Manifest (P2d contract, validated by IPlugin.validate at load time):
  *   - name         'audit'             (lowercase, non-empty)
- *   - version      '0.2.0'             (P2j: bumped from 0.1.0)
+ *   - version      '0.3.0'             (V10.1 2026-06-20: bumped from 0.2.0 --
+ *                                     subscribe all 12 evolution events, not just
+ *                                     2 (propose:after + apply:after))
  *   - capabilities ['tool']            (PLUGIN_CAPABILITIES category)
  *   - permissions  ['bus:on', 'log:info', 'fs:append']
  *                                       (P2j: 'fs:append' added — audit
@@ -34,16 +36,18 @@
  *                                        enableSandbox=true on loader.)
  *
  * Lifecycle:
- *   init(ctx)   subscribe to evolution:propose:after + evolution:apply:after
- *               via ctx.eventBus; reset in-memory log; bind baseDir
- *               from ctx.config (defaults to <cwd>/memory/audit);
+ *   init(ctx)   subscribe to all 12 evolution:* events (V10.1 2026-06-20,
+ *               was 2/12 before) via ctx.eventBus; reset in-memory log;
+ *               bind baseDir from ctx.config (defaults to <cwd>/memory/audit);
  *               recording = true
  *   enable()    recording = true (default after init)
  *   disable()   recording = false (events keep firing but are dropped)
- *   destroy()   unsubscribe both topics, clear in-memory log
+ *   destroy()   unsubscribe all 12 evolution:* topics, clear in-memory log
  *
  * Public API (in addition to IPlugin lifecycle):
- *   getEvents()           → Array<{topic, payload, recordedAt}> (in-memory)
+ *   getEvents()           → Array<{topic, payload, recordedAt}> (in-memory).
+                                    V10.1: now contains all 12 evolution:* events,
+                                    not just propose:apply:after.
  *   getLogPath()          → string (absolute path to audit.jsonl)
  *   readPersisted()       → Array<{topic, payload, recordedAt}> from disk
  *                           (post-restart replay — independent of in-memory)
@@ -51,10 +55,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { EVENTS } from '../core/events.js';
 
 export default {
   name: 'audit',
-  version: '0.2.0',
+  version: '0.3.0',
   capabilities: ['tool'],
   permissions: ['bus:on', 'log:info', 'fs:append'],
 
@@ -66,15 +71,31 @@ export default {
     // (e.g. plugin loaded via discovery without config wiring) — fall back
     // to env DARWIN_AUDIT_DIR or './memory/audit'.
     const configDir = ctx.config?.baseDir || process.env.DARWIN_AUDIT_DIR;
-    const baseDir =
-      configDir ||
-      path.join(process.cwd(), 'memory', 'audit');
+    const baseDir = configDir || path.join(process.cwd(), 'memory', 'audit');
     this._baseDir = baseDir;
     this._logPath = path.join(baseDir, 'audit.jsonl');
-    this._handlers = {
-      'evolution:propose:after': (payload) => this._record('evolution:propose:after', payload),
-      'evolution:apply:after': (payload) => this._record('evolution:apply:after', payload),
-    };
+    // V10.1 (2026-06-20): subscribe to ALL 12 evolution events. Previously
+    // only 2/12 were captured (propose:after, apply:after), leaving 10
+    // events invisible in audit.jsonl — diagnose, verify, rollback, learn,
+    // approve, reject, etc. were lost. Drive subscription by enumerating
+    // EVENTS keys filtered to the 'evolution:' namespace, one handler
+    // per topic. If EVENTS grows new evolution:* events in the future,
+    // this loop picks them up automatically — no manual list maintenance.
+    this._handlers = {};
+    // Use Object.values(EVENTS) to iterate topics only (the keys are
+    // SHOUTY_SNAKE_CASE constants like EVOLUTION_PROPOSE_AFTER — we
+    // don't need them, only the topic strings). ESLint flags unused
+    // destructured names, so a direct values() iteration keeps the
+    // contract clean.
+    for (const topic of Object.values(EVENTS)) {
+      if (typeof topic === 'string' && topic.startsWith('evolution:')) {
+        // Closure capture: bind topic explicitly so the lambda always
+        // records the right name even if a later iteration overwrites
+        // the loop var.
+        const t = topic;
+        this._handlers[t] = (payload) => this._record(t, payload);
+      }
+    }
     for (const [topic, fn] of Object.entries(this._handlers)) {
       this._bus.on(topic, fn);
     }

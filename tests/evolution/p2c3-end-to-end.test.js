@@ -258,15 +258,28 @@ describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
   test('audit plugin subscribes to the same evolution events Darwin emits (wire contract)', async () => {
     // We already proved in P2c-3's apply test that EVOLUTION_APPLY_AFTER
     // fires (audit plugin would receive it). Here we verify the static
-    // contract: audit.js's subscription list exactly matches Darwin's
-    // emission topics. If core/events.js changes a topic string without
-    // updating audit.js's subscribe list, audit silently breaks.
+    // contract: audit.js's subscription mechanism derives from the same
+    // EVENTS const Darwin emits, so any change to a topic string in
+    // core/events.js automatically propagates to audit (V10.1 refactor:
+    // dynamic subscription via Object.values(EVENTS).startsWith('evolution:')
+    // instead of a hand-maintained 2-entry _handlers literal).
     const eventsModule = await import('../../core/events.js');
     assert.equal(eventsModule.EVENTS.EVOLUTION_PROPOSE_AFTER, 'evolution:propose:after');
     assert.equal(eventsModule.EVENTS.EVOLUTION_APPLY_AFTER, 'evolution:apply:after');
     const auditSource = fs.readFileSync(path.join(V2_ROOT, 'plugin/audit.js'), 'utf8');
-    assert.match(auditSource, /'evolution:propose:after'/);
-    assert.match(auditSource, /'evolution:apply:after'/);
+    // V10.1: audit.js now imports EVENTS and filters by 'evolution:' prefix,
+    // not by hardcoded topic literals. The wire contract is now enforced
+    // by construction: any evolution:* topic added to EVENTS is auto-subscribed.
+    assert.match(auditSource, /import .*EVENTS.* from .*core\/events\.js/);
+    assert.match(auditSource, /startsWith\(['"]evolution:/);
+    // Sanity: the 12-event shape (V10.1) -- all 4 evolution phases (before/after/etc.)
+    // are reachable via EVENTS, so the dynamic subscription covers them.
+    const evoKeys = Object.keys(eventsModule.EVENTS).filter((k) => k.startsWith('EVOLUTION_'));
+    assert.equal(
+      evoKeys.length,
+      12,
+      'EVENTS must define 12 evolution events for V10.1 wire contract',
+    );
   });
 });
 

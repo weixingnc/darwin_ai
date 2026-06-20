@@ -1,7 +1,7 @@
 /**
  * P2j (2026-06-18) — audit plugin persistence tests.
  *
- * Verifies the upgraded audit plugin (plugin/audit.js v0.2.0):
+ * Verifies the upgraded audit plugin (plugin/audit.js v0.3.0):
  *   1. Records events to in-memory log (P2c-2 behavior preserved)
  *   2. Persists each event to <baseDir>/audit.jsonl
  *   3. readPersisted() replays from disk independent of in-memory
@@ -68,7 +68,9 @@ test('P2j: events persisted to <baseDir>/audit.jsonl (one line per event)', () =
   // File should exist and have 3 JSONL lines.
   const logPath = audit.getLogPath();
   assert.ok(existsSync(logPath), `expected ${logPath} to exist`);
-  const lines = readFileSync(logPath, 'utf8').split('\n').filter((l) => l.trim());
+  const lines = readFileSync(logPath, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim());
   assert.equal(lines.length, 3);
   const parsed = lines.map((l) => JSON.parse(l));
   assert.equal(parsed[0].topic, 'evolution:propose:after');
@@ -108,7 +110,9 @@ test('P2j: disable() stops BOTH in-memory and on-disk recording', () => {
   // In-memory: 2 events (the disabled one is dropped).
   assert.equal(audit.getEvents().length, 2);
   // On-disk: same 2 events.
-  const lines = readFileSync(audit.getLogPath(), 'utf8').split('\n').filter((l) => l.trim());
+  const lines = readFileSync(audit.getLogPath(), 'utf8')
+    .split('\n')
+    .filter((l) => l.trim());
   assert.equal(lines.length, 2);
   const parsed = lines.map((l) => JSON.parse(l));
   assert.equal(parsed[0].payload.count, 1);
@@ -139,7 +143,11 @@ test('P2j: readPersisted() skips malformed lines without throwing', () => {
     [
       JSON.stringify({ topic: 'evolution:propose:after', payload: { count: 1 }, recordedAt: 't1' }),
       'this is not json {',
-      JSON.stringify({ topic: 'evolution:apply:after', payload: { applied: true }, recordedAt: 't2' }),
+      JSON.stringify({
+        topic: 'evolution:apply:after',
+        payload: { applied: true },
+        recordedAt: 't2',
+      }),
       '',
     ].join('\n'),
     'utf8',
@@ -166,10 +174,10 @@ test('P2j: readPersisted() skips malformed lines without throwing', () => {
   audit.destroy();
 });
 
-test('P2j: audit plugin manifest version bumped to 0.2.0', () => {
+test('V10.1: audit plugin manifest version bumped to 0.3.0', () => {
   // Sanity check that the version bump is reflected in the manifest
   // (so consumers can detect the P2j upgrade).
-  assert.equal(audit.version, '0.2.0');
+  assert.equal(audit.version, '0.3.0');
 });
 
 test.afterAll ??= (fn) => test('afterAll', async () => fn());

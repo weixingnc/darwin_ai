@@ -62,6 +62,46 @@ const LOG_FILE = path.join(MODULE_REPO_ROOT, 'evolution', 'catalogue.log');
 // on every test process start.
 const TEST_LOG_FILE =
   process.env.NODE_ENV === 'test' ? path.join(os.tmpdir(), 'darwin-test-catalogue.log') : LOG_FILE;
+// V10.1 (2026-06-20): worktree isolation. When 'darwin self-evolution'
+// runs in a tmpdir worktree (V4-V9 cycles), the catalogue.json overlay
+// lives in /tmp/ but NODE_ENV is NOT 'test'. T7-W1's fix only catches
+// the test-mode path, so V4-V9 worktree cycles wrote 336/342 entries
+// (98%) to the production log. ISOLATED_LOG_FILE catches those worktree
+// writes without touching LOG_FILE (production) or TEST_LOG_FILE (test).
+const ISOLATED_LOG_FILE = path.join(os.tmpdir(), 'darwin-catalogue-isolated.log');
+
+/**
+ * V10.1 (2026-06-20): resolve the audit-log path for a catalogue add.
+ * Priority (first match wins):
+ *   1. explicit opts.logFile (caller override, e.g. test fixtures)
+ *   2. NODE_ENV=test -> TEST_LOG_FILE (T7-W1 contract preserved)
+ *   3. catalogue.json in /tmp/ (worktree cycle) -> ISOLATED_LOG_FILE
+ *   4. otherwise -> LOG_FILE (production)
+ *
+ * This is the single source of truth for "which log file does this
+ * catalogue add go to". Both addToCatalogue() and any future callers
+ * (e.g. proposeGrowth-driven self-evolve) MUST go through here.
+ */
+function resolveLogFile(opts = {}) {
+  if (opts.logFile) {
+    return opts.logFile;
+  }
+  // V10.1 (2026-06-20): file-path check wins over NODE_ENV=test. The
+  // /tmp/ marker means "this is a worktree cycle" regardless of
+  // whether NODE_ENV=test is also set (e.g. running unit tests inside
+  // a worktree). Routing worktree adds to ISOLATED_LOG_FILE protects
+  // the production log even when NODE_ENV is incidentally 'test'.
+  // T7-W1 contract (production never polluted) is still satisfied
+  // because the file in T7-W1's test is always in /tmp/.
+  const file = opts.file || DEFAULT_FILE;
+  if (typeof file === 'string' && (file.includes('/tmp/') || file.startsWith(os.tmpdir()))) {
+    return ISOLATED_LOG_FILE;
+  }
+  if (process.env.NODE_ENV === 'test') {
+    return TEST_LOG_FILE;
+  }
+  return LOG_FILE;
+}
 
 /**
  * P2g baseline. Mirrors what diagnose.js had pre-P2g (P2c-2 grew
@@ -256,7 +296,12 @@ export function addToCatalogue(category, name, opts = {}) {
   // TEST_LOG_FILE itself is the same constant appendAudit uses
   // and is already NODE_ENV-aware (== LOG_FILE in prod, == tmp file
   // in test), so production callers are unaffected.
-  const logFile = opts.logFile || TEST_LOG_FILE;
+  // V10.1 (2026-06-20): route via resolveLogFile (worktree isolation).
+  // T7-W1 fix used 'opts.logFile || TEST_LOG_FILE' which worked for
+  // npm test but missed worktree cycles (NODE_ENV !== 'test'). The
+  // new helper also catches the worktree path (file in /tmp/) and
+  // routes to ISOLATED_LOG_FILE.
+  const logFile = resolveLogFile(opts);
   const reason = opts.reason || 'unspecified';
   const tagCwd = opts.cwd || MODULE_REPO_ROOT;
   const cat = String(category || '').toLowerCase();
@@ -416,6 +461,8 @@ export const _internal = {
   DEFAULT_FILE,
   LOG_FILE,
   TEST_LOG_FILE,
+  ISOLATED_LOG_FILE,
+  resolveLogFile,
   appendAudit,
   tryTagCataloguePre,
   MODULE_REPO_ROOT,
