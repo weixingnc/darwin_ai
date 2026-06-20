@@ -12,7 +12,7 @@ breaks. The whole loop is auditable, revertible, and human-approved by default.
 ```bash
 git clone <darwin> ~/darwin && cd ~/darwin
 npm install && chmod +x bin/darwin
-npm test           # 1199/1199 pass
+npm test           # 1247/1247 pass
 ./bin/darwin self-evolution diagnose   # scan current capability surface
 ./bin/darwin self-evolution evolve --confirm   # run one self-evolve cycle
 ```
@@ -45,9 +45,9 @@ human decides _what_ to evolve; Darwin handles _how_.
 | Platforms | 1/1       | 100%     |
 | Plugins   | 7/7       | 100%     |
 
-- **Tests:** 1199/1199 pass · **Lint:** 0 errors · **Size:** 165 files, all < 1000 lines
+- **Tests:** 1199/1199 pass · **Lint:** 0 errors · **Size:** 168 files, all < 1000 lines
 - **Coverage:** maintained at 91%+ (V10.1 audit plugin refactor preserves)
-- **HEAD:** `e4a7b42` (60+ cycles: P2 + W2-W9 + V10.1/V10.2/V10.3)
+- **HEAD:** `c01b44d` (V14-V17.1 productization: log rotate + audit query CLI + skill-contract sync + 1247 tests)
 - **Production plugins:** 7 — `logger` (example) · `audit` (P2c-2 + P2j, v10.1 all-12-events) · `metrics` (W4-1) · `rate-limiter` (W5-1) · `llm-cache` (W6-2) · `feishu-notify` (V6.1) · `cron-audit` (V7.2)
 - **Provider count** grew from 6 to 12 in V4-V8: `claude-3.5`, `deepseek` (R1), `gemini`, `openai` (native), `openai-compatible` (shared by qwen/deepseek), `qwen` (R1), plus the anthropic family. V10.2 extracted 6 shared HTTP helpers into `provider/protocol/_shared.js`.
 - **Skill count** grew from 6 to 7 with V7.1's `feishu-card` (interactive card shape) plus 6 sibling skills (hello-world, summarizer, translator, commit-message, test-generator, code-review). V8.2 normalised `feishu-card.execute()` to single-key `{output:string}` contract.
