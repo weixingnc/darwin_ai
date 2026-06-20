@@ -147,25 +147,25 @@ diagnose:start → diagnose:end → propose:start → propose:end
 
 V3+ P0/P1 已经在 2026-06-15 06-18 期间全部跑通。P2 = plugin evolution（Darwin 自进化贯通 plugin 维度），分 13 cycle：
 
-| 阶段 | SHA | 一句话 |
-|---|---|---|
-| ✅ P2a | `a9fd668` | plugin CLI bug fix (`[object Object]` → `→ logger`) |
-| ✅ P2b | `694f1ce` | diagnose 扫 plugins + missing_plugins 字段 |
-| ✅ P2d | `f6f3e6d` | plugin manifest 安全契约 (deny-by-default) |
-| ✅ P2c-1 | `1c78d86` | evolution propose 加 plugin 模板 |
-| ✅ P2c-2 | `71e0ffb` | 真生产 audit plugin + catalogue 1→2 |
-| ✅ P2c-3 | `dbd4c9e` | Darwin 自指端到端 (worktree + subprocess) |
-| ✅ P2e | `52a645b` | runtime sandbox monkey-patch (9 高危方法) |
-| ✅ P2f | `55d90a5` | self-evolve orchestrator (closed loop, confirm:true) |
-| ✅ P2g | `f63c544` | catalogue 持久化 + 增长策略 (JSON overlay) |
-| ✅ P2i | `0ade10b` | plugin runtime sandbox 实装 (load/unload activate) |
-| ✅ P2j | `1d4275e` | audit plugin on-disk persistence (fs:append JSONL) |
-| ✅ P3a | `8071460` | self-evolve CLI 拍板入口 (--confirm) |
-| ✅ P3b | `ff373ab` | c8 coverage baseline 90.3% (含 lockfile 修复) |
-| ✅ P3c | `2d1b2ab` | README.md (121 行 GitHub 入口) |
-| ✅ W2-1 | `5607a7e` | 修 diagnose .test.js pre-existing bug |
-| ✅ W2-2 | `55e86ab` | husky v9 deprecation + core.hooksPath 配置 bug 修复 |
-| ✅ W3-2 | `d6f7d1a` | 端到端自进化 CLI 真跑通 (P2g catalogue per-repoRoot 修复) |
+| 阶段     | SHA       | 一句话                                                    |
+| -------- | --------- | --------------------------------------------------------- |
+| ✅ P2a   | `a9fd668` | plugin CLI bug fix (`[object Object]` → `→ logger`)       |
+| ✅ P2b   | `694f1ce` | diagnose 扫 plugins + missing_plugins 字段                |
+| ✅ P2d   | `f6f3e6d` | plugin manifest 安全契约 (deny-by-default)                |
+| ✅ P2c-1 | `1c78d86` | evolution propose 加 plugin 模板                          |
+| ✅ P2c-2 | `71e0ffb` | 真生产 audit plugin + catalogue 1→2                       |
+| ✅ P2c-3 | `dbd4c9e` | Darwin 自指端到端 (worktree + subprocess)                 |
+| ✅ P2e   | `52a645b` | runtime sandbox monkey-patch (9 高危方法)                 |
+| ✅ P2f   | `55d90a5` | self-evolve orchestrator (closed loop, confirm:true)      |
+| ✅ P2g   | `f63c544` | catalogue 持久化 + 增长策略 (JSON overlay)                |
+| ✅ P2i   | `0ade10b` | plugin runtime sandbox 实装 (load/unload activate)        |
+| ✅ P2j   | `1d4275e` | audit plugin on-disk persistence (fs:append JSONL)        |
+| ✅ P3a   | `8071460` | self-evolve CLI 拍板入口 (--confirm)                      |
+| ✅ P3b   | `ff373ab` | c8 coverage baseline 90.3% (含 lockfile 修复)             |
+| ✅ P3c   | `2d1b2ab` | README.md (121 行 GitHub 入口)                            |
+| ✅ W2-1  | `5607a7e` | 修 diagnose .test.js pre-existing bug                     |
+| ✅ W2-2  | `55e86ab` | husky v9 deprecation + core.hooksPath 配置 bug 修复       |
+| ✅ W3-2  | `d6f7d1a` | 端到端自进化 CLI 真跑通 (P2g catalogue per-repoRoot 修复) |
 
 **P2 路线图收口** = 17 cycle 全 ✅，**HEAD `d6f7d1a`**，6 catalogue 全 closure，897 tests pass / 0 lint / 131 files < 1000 / 90.30% coverage。详见 `../README.md` 的 P2 路线图表。
 
@@ -186,6 +186,97 @@ V3+ P0/P1 已经在 2026-06-15 06-18 期间全部跑通。P2 = plugin evolution�
 **v2 是"造徒手打猎的数字生命体"；v3+ P0/P1 是"学会造石头弓箭"；v3+ P2 是"学会装新器官（plugin）"**。
 
 ---
+
+## v4-v10 续期 (2026-06-19 ~ 2026-06-20) - PM Hermes 收口
+
+> **作者**: Hermes PM (V4-V9) + codex-cli PM (V10)
+> **承接**: V3+ P0 (SelfEvolution 鸡) + P1 (Darwin 自长 蛋) + P2 (plugin 装新器官)
+> **本节**: 续期到 v9.2 (60+ cycle, 1199/1199 tests, 7 production plugins)
+
+### v4 cycle 0-5 (vector memory + 6-skill self-evolution)
+
+| Cycle | SHA       | What                                                              |
+| ----- | --------- | ----------------------------------------------------------------- |
+| V4 c0 | `a04c3d9` | OpenClaw workspace fix (3 agents pointed at empty side repos)     |
+| V4 c1 | `8cf2bf0` | vector memory DI seam — fakeembed default, 1005/1005 tests        |
+| V4 c2 | `3e8f8e9` | head/tail/wc e2e — 1000/1000 tests (integer gate milestone)       |
+| V4 c3 | `0a73413` | deepseek R1 reasoning e2e — 1005/1005, R1 surface parity          |
+| V4 c4 | `242f754` | provider.embed() + vector end-to-end — 1018/1018, P1-B2 milestone |
+| V4 c5 | `b6984a7` | 6-skill Darwin self-evolution e2e — 1027/1027                     |
+
+### v5 cycle 1-2 (feishu adapter)
+
+| Cycle | SHA       | What                                                        |
+| ----- | --------- | ----------------------------------------------------------- |
+| V5 c1 | `aa0c439` | feishu adapter send (real IM v1 wire + tenant_access_token) |
+| V5 c2 | `9267ff8` | feishu adapter parse + verify round-trip                    |
+
+### v6 cycle 1-2 (feishu-notify plugin + feishu-card skill)
+
+| Cycle | SHA       | What                                                         |
+| ----- | --------- | ------------------------------------------------------------ |
+| V6 c1 | `d260048` | plugin/feishu-notify (Darwin evolution events → feishu push) |
+| V6 c2 | `4a07d1a` | skill: feishu-card (interactive push) + cron scheduler seed  |
+
+### v7 cycle 1-2 (feishu-card skill shape + cron)
+
+| Cycle | SHA       | What                                                           |
+| ----- | --------- | -------------------------------------------------------------- |
+| V7 c1 | `23e3446` | feishu-card skill execute shape (single-key `{output:string}`) |
+| V7 c2 | `eb567dc` | cron scheduler + audit heartbeat plugin (cron-tick → audit)    |
+
+### v8 cycle 1-2 (qwen R1 + housekeeping)
+
+| Cycle | SHA       | What                                                        |
+| ----- | --------- | ----------------------------------------------------------- |
+| V8 c1 | `aeb755a` | qwen R1 reasoning e2e closure (DashScope OpenAI-compatible) |
+| V8 c2 | `c39b32a` | provider test imports + cron-audit theme + housekeeping doc |
+
+### v9 cycle 1-2 (cross-night delivery + feishu-notify loader coverage)
+
+| Cycle | SHA       | What                                                   |
+| ----- | --------- | ------------------------------------------------------ |
+| V9 c1 | `cf231b3` | docs/memory/2026-06-19 (cross-night delivery)          |
+| V9 c2 | `28552ea` | feishu-notify loader.init() lifecycle e2e (7 case A-G) |
+
+### v10.1-v10.3 (codex-cli PM handoff: observability + refactor + housekeeping)
+
+| Cycle | SHA       | What                                                                       |
+| ----- | --------- | -------------------------------------------------------------------------- |
+| V10.1 | `b32e7b7` | audit plugin all-12 events + catalogue worktree isolation (observability)  |
+| V10.2 | `9aa3f72` | provider/protocol/\_shared.js (qwen/deepseek/gemini refactor, ~200 行消重) |
+| V10.3 | `e4a7b42` | V9.2 reviewer 4-item housekeeping (feishu-notify e2e tightening)           |
+
+### 续期后状态 (2026-06-20)
+
+| Dimension          | v3+ P0 收口时 | v4-v10 续期后                   |
+| ------------------ | ------------- | ------------------------------- |
+| Tests              | 974/974       | 1199/1199 (+225)                |
+| Providers          | 6/6           | 12/12 (+6)                      |
+| Skills             | 6/6           | 7/7 (+1)                        |
+| Plugins            | 5/5           | 7/7 (+2)                        |
+| Production plugins | 5             | 7 (+feishu-notify, +cron-audit) |
+| HEAD               | `b9f725b`     | `e4a7b42`                       |
+| 仓库卫生           | 138 files     | 165 files (+27)                 |
+
+### 续期 philosophy 一致性 (v4-v10 全部遵循 v2 哲学)
+
+- **v4** 走 P1 第二阶段：Darwin 真的用 SelfEvolution 给自己长 vector memory + 6 skill
+- **v5** 扩到 platform adapter：feishu 让 Darwin 有了外发消息能力
+- **v6** 走 P2 plugin 装新器官：feishu-notify plugin 让 Darwin 自家事件能外推到飞书
+- **v7** 走 skill + cron：feishu-card skill + cron 调度（Darwin 自己装调度器）
+- **v8** 走 R1 reasoning surface：qwen R1 reasoning 跟 deepseek R1 平齐（provider 横扩）
+- **v9** 走 loader coverage：feishu-notify 7 状态机覆盖（plugin 装器官后的质量）
+- **v10** 走 observability + 重构：audit log 全事件 + catalogue.log 治本 + provider 重构（治理债清理）
+
+**v3+ P0/P1/P2 全部收口；v4-v10 续期从 974 tests 涨到 1199 tests，5 plugins 涨到 7 plugins，6 providers 涨到 12 providers —— 全部由 Darwin 用 SelfEvolution 自长 + PM 审 + reviewer 复核**。
+
+### v4-v10 reviewer backlog (建议 V11+ 收口)
+
+V8.1 S2 (extractQwenReasoningContent + extractDeepSeekReasoningContent 抽取) → V10.2 收口 ✓
+V9.2 4-item housekeeping → V10.3 收口 ✓
+V3 P1 ConfigResolver YAML gap → 留 V10.7 (1 cycle, fix ConfigResolver 读 YAML)
+V10.4 当前正在做：README + V3_ROADMAP V4-V9 续期 (本节 ✓)
 
 ## 链接
 
