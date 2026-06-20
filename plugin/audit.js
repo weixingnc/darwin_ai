@@ -56,6 +56,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { EVENTS } from '../core/events.js';
+// V14: log rotate policy. Best-effort; never block writes on rotation.
+import { rotateIfNeededSync } from '../core/log-rotate.js';
 
 export default {
   name: 'audit',
@@ -178,6 +180,12 @@ export default {
     // evolution events are infrequent (propose + apply per cycle).
     try {
       fs.mkdirSync(this._baseDir, { recursive: true });
+      // V14: rotate if audit.jsonl is over threshold; keep last 10 archives.
+      try {
+        rotateIfNeededSync(this._logPath, { maxBytes: 512 * 1024, maxFiles: 10 });
+      } catch {
+        /* best-effort */
+      }
       fs.appendFileSync(this._logPath, JSON.stringify(entry) + '\n', 'utf8');
     } catch (err) {
       // Don't crash the plugin if disk write fails — log to stderr

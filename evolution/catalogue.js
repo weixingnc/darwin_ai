@@ -45,6 +45,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
+// V14: log rotate policy. Best-effort; never block writes on rotation.
+import { rotateIfNeededSync } from '../core/log-rotate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // MODULE_REPO_ROOT is the hardcoded repo root for this module (the Darwin
@@ -401,6 +403,12 @@ function appendAudit(entry, logFile) {
   // synthetic entries don't pollute the production log.
   const target = logFile || TEST_LOG_FILE;
   fs.mkdirSync(path.dirname(target), { recursive: true });
+  // V14: rotate if target is over threshold; keep last 10 archives.
+  try {
+    rotateIfNeededSync(target, { maxBytes: 512 * 1024, maxFiles: 10 });
+  } catch {
+    /* best-effort */
+  }
   fs.appendFileSync(target, JSON.stringify(full) + '\n', 'utf8');
 }
 
