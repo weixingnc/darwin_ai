@@ -32,90 +32,25 @@
 
 import { ProviderBase } from './base.js';
 import { createOpenAICompatibleProtocol } from './protocol/openai-compatible.js';
+import {
+  normalizeBaseUrl,
+  bearerAuthHeader,
+  fetchWithTimeout,
+  wrapHttpError,
+  makeExtractReasoning,
+} from './protocol/_shared.js';
 import { ConfigResolver } from '../core/config-resolver.js';
 
 const NOT_IMPLEMENTED_MSG = '[deepseek] NOT_IMPLEMENTED';
 const CHAT_PATH = '/v1/chat/completions';
 const DEFAULT_TIMEOUT_MS = 60000;
 // DeepSeek public catalogue (V3 + R1). Darwin self-evolves this list over time.
+const extractReasoning = makeExtractReasoning({ onAbsent: '' });
+
 const STATIC_MODELS = Object.freeze([
   'deepseek-chat', // V3 (default)
   'deepseek-reasoner', // R1 (reasoning)
 ]);
-
-function normalizeBaseUrl(baseUrl) {
-  if (typeof baseUrl !== 'string' || baseUrl.length === 0) {
-    return '';
-  }
-  let url = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-  // Allow user to pass either `https://api.deepseek.com/v1` or the bare base.
-  url = url.replace(/\/v1$/, '');
-  return url;
-}
-
-function buildHeaders(apiKey) {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey || ''}`,
-  };
-}
-
-function extractErrorMessage(rawBody, status) {
-  try {
-    if (rawBody && typeof rawBody === 'object') {
-      if (rawBody.error && typeof rawBody.error === 'object' && rawBody.error.message) {
-        return String(rawBody.error.message);
-      }
-      if (rawBody.error && typeof rawBody.error === 'string') {
-        return rawBody.error;
-      }
-      if (rawBody.message) {
-        return String(rawBody.message);
-      }
-    }
-  } catch {
-    /* fall through */
-  }
-  return `HTTP ${status}`;
-}
-
-function wrapHttpError(raw, status) {
-  const msg = extractErrorMessage(raw, status);
-  const err = new Error(`[deepseek] HTTP ${status}: ${msg}`);
-  err.status = status;
-  err.raw = raw;
-  return err;
-}
-
-async function fetchWithTimeout(url, init, timeoutMs) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Extract DeepSeek R1 reasoning_content from a parsed raw response.
- * Returns '' when the field is absent (V3 / non-reasoning models).
- * Defensive: never throws (v1 #4 try/catch lesson).
- */
-function extractReasoning(raw) {
-  try {
-    if (!raw || !Array.isArray(raw.choices) || raw.choices.length === 0) {
-      return '';
-    }
-    const m = raw.choices[0] && raw.choices[0].message;
-    if (!m || typeof m !== 'object' || typeof m.reasoning_content !== 'string') {
-      return '';
-    }
-    return m.reasoning_content;
-  } catch {
-    return '';
-  }
-}
 
 /**
  * DeepSeekProvider: OpenAI-compatible LLM provider for DeepSeek.
@@ -156,14 +91,14 @@ export class DeepSeekProvider extends ProviderBase {
       `${this._baseUrl}${CHAT_PATH}`,
       {
         method: 'POST',
-        headers: buildHeaders(this._apiKey),
+        headers: bearerAuthHeader(this._apiKey),
         body: JSON.stringify(bodyEntry.value),
       },
       this._timeoutMs,
     );
     const raw = await res.json();
     if (!res.ok) {
-      throw wrapHttpError(raw, res.status);
+      throw wrapHttpError('deepseek', raw, res.status);
     }
     const parsed = await this._protocol.parseResponse(raw);
     if (!parsed.ok) {

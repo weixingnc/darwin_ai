@@ -39,6 +39,13 @@
 
 import { ProviderBase } from './base.js';
 import { createOpenAICompatibleProtocol } from './protocol/openai-compatible.js';
+import {
+  normalizeBaseUrl,
+  bearerAuthHeader,
+  fetchWithTimeout,
+  wrapHttpError,
+  makeExtractReasoning,
+} from './protocol/_shared.js';
 import { ConfigResolver } from '../core/config-resolver.js';
 
 const NOT_IMPLEMENTED_MSG = '[qwen] NOT_IMPLEMENTED';
@@ -54,105 +61,13 @@ const DEFAULT_TIMEOUT_MS = 60000;
 //     STATIC_MODELS — Darwin can self-evolve to extend the catalogue when
 //     these models become available (V8.1 is a thin R1-surface parity with
 //     deepseek-reasoner V4 closure, not a model rollout).
+const extractReasoning = makeExtractReasoning({ onAbsent: null });
+
 const STATIC_MODELS = Object.freeze([
   'qwen-turbo', // default
   'qwen-plus',
   'qwen-max',
 ]);
-
-function normalizeBaseUrl(baseUrl) {
-  if (typeof baseUrl !== 'string' || baseUrl.length === 0) {
-    return '';
-  }
-  let url = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-  // Allow user to pass either `https://dashscope.aliyuncs.com/compatible-mode/v1`
-  // OR the bare base `https://dashscope.aliyuncs.com`. We then append the
-  // CHAT_PATH which already includes `/compatible-mode/v1/...`.
-  // Strip both `/v1` and `/compatible-mode/v1` to be lenient about user input.
-  url = url.replace(/\/compatible-mode\/v1$/, '');
-  url = url.replace(/\/v1$/, '');
-  return url;
-}
-
-function buildHeaders(apiKey) {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey || ''}`,
-  };
-}
-
-function extractErrorMessage(rawBody, status) {
-  try {
-    if (rawBody && typeof rawBody === 'object') {
-      if (rawBody.error && typeof rawBody.error === 'object' && rawBody.error.message) {
-        return String(rawBody.error.message);
-      }
-      if (rawBody.error && typeof rawBody.error === 'string') {
-        return rawBody.error;
-      }
-      if (rawBody.message) {
-        return String(rawBody.message);
-      }
-    }
-  } catch {
-    /* fall through */
-  }
-  return `HTTP ${status}`;
-}
-
-function wrapHttpError(raw, status) {
-  const msg = extractErrorMessage(raw, status);
-  const err = new Error(`[qwen] HTTP ${status}: ${msg}`);
-  err.status = status;
-  err.raw = raw;
-  return err;
-}
-
-async function fetchWithTimeout(url, init, timeoutMs) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Extract Qwen R1 reasoning_content from a parsed raw response.
- * Returns null when the field is absent (V3 / non-reasoning models) or
- * non-string (malformed payload). Differs from deepseek (which returns '')
- * because Qwen V3 explicitly emits `reasoning_content: null`, not the
- * field being absent — `null` is the honest wire shape; we keep it.
- * Defensive: never throws (v1 #4 try/catch lesson).
- *
- * @param {object} raw — parsed raw response body
- * @returns {string|null} reasoning chain-of-thought or null
- */
-function extractQwenReasoningContent(raw) {
-  try {
-    if (!raw || typeof raw !== 'object') {
-      return null;
-    }
-    if (!Array.isArray(raw.choices) || raw.choices.length === 0) {
-      return null;
-    }
-    const first = raw.choices[0];
-    if (!first || typeof first !== 'object') {
-      return null;
-    }
-    const m = first.message;
-    if (!m || typeof m !== 'object') {
-      return null;
-    }
-    if (typeof m.reasoning_content !== 'string') {
-      return null;
-    }
-    return m.reasoning_content;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * QwenProvider: OpenAI-compatible LLM provider for Aliyun DashScope.
@@ -169,7 +84,7 @@ export class QwenProvider extends ProviderBase {
       capabilities: ['chat', 'tool-call', 'list-models'],
       eventBus: opts.eventBus,
     });
-    this._baseUrl = normalizeBaseUrl(opts.baseUrl);
+    this._baseUrl = normalizeBaseUrl(opts.baseUrl, { stripCompatibleMode: true });
     this._apiKey = opts.apiKey || '';
     this._defaultModel = opts.defaultModel || 'qwen-turbo';
     this._timeoutMs =
@@ -193,14 +108,14 @@ export class QwenProvider extends ProviderBase {
       `${this._baseUrl}${CHAT_PATH}`,
       {
         method: 'POST',
-        headers: buildHeaders(this._apiKey),
+        headers: bearerAuthHeader(this._apiKey),
         body: JSON.stringify(bodyEntry.value),
       },
       this._timeoutMs,
     );
     const raw = await res.json();
     if (!res.ok) {
-      throw wrapHttpError(raw, res.status);
+      throw wrapHttpError('qwen', raw, res.status);
     }
     const parsed = await this._protocol.parseResponse(raw);
     if (!parsed.ok) {
@@ -216,7 +131,7 @@ export class QwenProvider extends ProviderBase {
     // qwen-max by default), reasoning_content is null and `usage.reasoning`
     // is null too — explicit surface (not ''), so callers can distinguish
     // "reasoning ran but produced empty text" from "reasoning not invoked".
-    const reasoning = extractQwenReasoningContent(raw);
+    const reasoning = extractReasoning(raw);
     return {
       content: parsed.value.content,
       toolCalls: parsed.value.tool_calls,

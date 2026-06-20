@@ -9,6 +9,7 @@
  */
 
 import { ProviderBase } from './base.js';
+import { normalizeBaseUrl, wrapHttpError, fetchWithTimeout } from './protocol/_shared.js';
 import { ConfigResolver } from '../core/config-resolver.js';
 
 const NOT_IMPLEMENTED_MSG = '[gemini] NOT_IMPLEMENTED';
@@ -139,49 +140,6 @@ const _geminiProtocol = {
   },
 };
 
-function normalizeBaseUrl(u) {
-  if (typeof u !== 'string' || u.length === 0) {
-    return '';
-  }
-  return u.endsWith('/') ? u.slice(0, -1) : u;
-}
-
-function extractErrorMessage(rawBody, status) {
-  try {
-    if (rawBody && typeof rawBody === 'object') {
-      if (rawBody.error && typeof rawBody.error === 'object' && rawBody.error.message) {
-        return String(rawBody.error.message);
-      }
-      if (rawBody.error && typeof rawBody.error === 'string') {
-        return rawBody.error;
-      }
-      if (rawBody.message) {
-        return String(rawBody.message);
-      }
-    }
-  } catch {
-    /* fall through */
-  }
-  return `HTTP ${status}`;
-}
-
-function wrapHttpError(raw, status) {
-  const err = new Error(`[gemini] HTTP ${status}: ${extractErrorMessage(raw, status)}`);
-  err.status = status;
-  err.raw = raw;
-  return err;
-}
-
-async function fetchWithTimeout(url, init, timeoutMs) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /** GeminiProvider: Google AI for Developers (Gemini LLM). */
 export class GeminiProvider extends ProviderBase {
   constructor(opts = {}) {
@@ -223,7 +181,7 @@ export class GeminiProvider extends ProviderBase {
     );
     const raw = await res.json();
     if (!res.ok) {
-      throw wrapHttpError(raw, res.status);
+      throw wrapHttpError('gemini', raw, res.status);
     }
     const parsed = this._geminiProtocol.parseResponse(raw);
     if (!parsed.ok) {
