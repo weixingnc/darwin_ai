@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v*]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch on new push
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimum permissions: read repo contents
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: npm run verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Size check
+        run: npm run size-check
+
+      - name: Test
+        run: npm test
+        env:
+          NODE_ENV: test
+
+      # Future: coverage, security audit, build artefacts
+      # - name: Coverage
+      #   run: npm run test:coverage
+      # - name: Security audit
+      #   uses: github/codeql-action/analyze@v3
