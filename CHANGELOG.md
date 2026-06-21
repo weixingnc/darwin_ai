@@ -40,6 +40,23 @@ idempotent`); the planned fs.watch event-delivery test is deferred to
   baseline bumped 9 -> 11 (loader-load + loader-discover are the 10th and 11th
   baseline plugins). Total: 1254 tests passing (was 1253). No LLM, no network.
 
+### Added (V25.1, 2026-06-21)
+
+- **V25.1 install.ps1 tarball mode** (`chore(install): install.ps1
+tarball mode`): Windows install.ps1 gains `-FromTarball URL` and
+  `-FromTarballInstalled` flags, mirroring the V25-actual
+  install.sh update. After V25.1, the one-line install works
+  on all three supported platforms (Linux/macOS via bash,
+  Windows via PowerShell) without requiring git. The .ps1 was
+  generated via Python on the server (cleaner PowerShell
+  escape handling than the V25-actual attempt). No new in-tree
+  tests; the V24-actual install-e2e-windows job covers the
+  git path, and the V25-actual release.yml smoke test covers
+  the tarball path on a Linux runner. A Windows-side tarball
+  smoke test is deferred to V25.2 (requires a self-hosted
+  Windows runner). No LLM, no network. Total: 1255 tests
+  passing (unchanged from V25-actual).
+
 ### Added (V25-actual, 2026-06-21)
 
 - **V25-actual tarball release pipeline** (`chore(release): tarball

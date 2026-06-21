@@ -33,7 +33,7 @@ npm test                       # 1255/1255 pass (V23 baseline)
 # Linux/macOS:
 #   curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh \
 #     | bash -s -- --from-tarball https://github.com/weixing/darwin/releases/download/v0.1.0/darwin-v0.1.0.tar.gz
-# Windows (install.ps1 tarball mode coming in V25.1):
+# Windows (V25.1+):
 #   iwr -useb .../install.ps1 | iex; Install-Darwin -FromTarball <url>
 
 # Or two-step (more inspectable):
