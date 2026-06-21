@@ -1,21 +1,32 @@
-#!/usr/bin/env node
 /**
- * Darwin v2 CLI — D-5 用户面入口 (PR 19a + 19b).
+ * Darwin CLI — one-line installer entry point.
+ *
+ * V23: added --version / version subcommand for the one-click
+ * installer (install.sh, install.ps1) to verify the install
+ * without calling any other subcommand. Version is read from
+ * package.json so it stays in sync with `npm version` bumps.
+ *
+ * V23 also refactored the subcommand dispatch into a table
+ * (COMMANDS / SUBCOMMANDS) to keep main() under the
+ * complexity=15 cap. Adding a new subcommand is now a one-line
+ * entry in the table -- no new branch in main().
  *
  * Sub-commands:
- *   darwin chat "..."              single-shot chat (PR 19a)
- *   darwin config add <module>     interactive config add (PR 19a)
- *   darwin config show             list configs, secrets redacted (PR 19a)
- *   darwin repl                    persistent chat (PR 19b)
- *   darwin plugin add <path>       load + init + enable a plugin (PR 19b)
- *   darwin plugin list             list loaded plugins (PR 19b)
- *   darwin memory show <key>       read a memory key (PR 19b)
- *   darwin memory set <key> <val>  write a memory key (string MVP, PR 19b)
- *   darwin help                    this help
- *
- * v2 design: 0 真凭据. config 走 ${VAR} 占位符, key 走 ~/.darwin/.env.
+ *   darwin version / --version / -V   print version and exit
+ *   darwin chat "..."                 single-shot chat
+ *   darwin config add <module>        interactive config add
+ *   darwin config show                list configs, secrets redacted
+ *   darwin repl                       persistent chat
+ *   darwin plugin add <path>          load + init + enable a plugin
+ *   darwin plugin list                list loaded plugins
+ *   darwin memory show <key>          read a memory key
+ *   darwin memory set <key> <val>     write a memory key (string MVP)
+ *   darwin help                       this help
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { chat } from './lib/chat.js';
 import { configAdd, configShow } from './lib/config.js';
 import { repl } from './lib/repl.js';
@@ -23,81 +34,129 @@ import { pluginAdd, pluginList } from './lib/plugin.js';
 import { memoryShow, memorySet } from './lib/memory.js';
 import { selfEvolutionDispatch } from './lib/self-evolution.js';
 
-const [, , cmd, sub, ...rest] = process.argv;
+// Resolve the package.json relative to this file (bin/darwin).
+// Walking up handles both direct clone (~/.darwin/bin/darwin) and
+// the npm-installed layout (node_modules/darwin/bin/darwin).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+function readVersion() {
+  for (let i = 1; i <= 4; i += 1) {
+    const candidate = join(__dirname, ...Array(i).fill('..'), 'package.json');
+    try {
+      const pkg = JSON.parse(readFileSync(candidate, 'utf8'));
+      if (pkg && typeof pkg.version === 'string') {
+        return { version: pkg.version, name: pkg.name || 'darwin' };
+      }
+    } catch {
+      /* keep looking */
+    }
+  }
+  return { version: '0.0.0-unknown', name: 'darwin' };
+}
+
+function showVersion() {
+  const { version, name } = readVersion();
+  process.stdout.write(name + ' v' + version + '\n');
+}
 
 const HELP = `Darwin v2 — digital life CLI
 
 Usage:
-  darwin chat "..."              single-shot chat (uses first configured provider)
-  darwin repl                    persistent chat (Ctrl+D to exit, "clear" to wipe history)
-  darwin config add <module>     interactive config add
-  darwin config show             list configs (secrets redacted)
-  darwin plugin add <path>       load + init + enable a plugin
-  darwin plugin list             list loaded plugins
-  darwin memory show <key>       read a memory key
-  darwin memory set <key> <val>  write a memory key (string only MVP)
-  darwin self-evolution <sub>    self-evolution 7 api (diagnose/propose/apply/verify/rollback/audit/learn)
-  darwin help                    this help
+  darwin version                    print version and exit
+  darwin chat "..."                 single-shot chat (uses first configured provider)
+  darwin repl                       persistent chat (Ctrl+D to exit, "clear" to wipe history)
+  darwin config add <module>        interactive config add
+  darwin config show                list configs (secrets redacted)
+  darwin plugin add <path>          load + init + enable a plugin
+  darwin plugin list                list loaded plugins
+  darwin memory show <key>          read a memory key
+  darwin memory set <key> <val>     write a memory key (string only MVP)
+  darwin self-evolution <sub>       self-evolution 7 api (diagnose/propose/apply/verify/rollback/audit/learn)
+  darwin help                       this help
 
 Supported modules: provider-anthropic, provider-openai
 `;
 
+// Subcommand dispatch table. Each entry is (handler) where handler
+// receives { argv, cmd, sub, rest } and returns a Promise.
+// Adding a new subcommand = adding a single entry below.
+const SUBCOMMANDS = {
+  config: {
+    add: ({ rest }) => configAdd(rest[0]),
+    show: () => configShow(),
+  },
+  plugin: {
+    add: ({ rest }) => pluginAdd(rest[0]),
+    list: () => pluginList(),
+  },
+  memory: {
+    show: ({ rest }) => memoryShow(rest[0]),
+    set: ({ rest }) => memorySet(rest[0], rest.slice(1).join(' ')),
+  },
+};
+
+// Top-level command dispatch. Version flags live outside the table
+// so the installer can verify the install before main() does
+// any provider / config work.
+const COMMANDS = {
+  version: () => showVersion(),
+  chat: ({ argv }) => chat(argv.slice(1).join(' ').trim()),
+  repl: () => repl(),
+  'self-evolution': ({ sub, rest }) => selfEvolutionDispatch(sub, rest),
+};
+
+function runNested(cmd, sub, rest, argv) {
+  const group = SUBCOMMANDS[cmd];
+  if (!group) {
+    return false;
+  }
+  const handler = group[sub];
+  if (!handler) {
+    return false;
+  }
+  handler({ argv, cmd, sub, rest });
+  return true;
+}
+
 async function main() {
-  // argv: [node, bin/darwin, ...args]
-  // For sub-command pattern (config add, plugin add, memory show, etc):
-  //   args[0] = cmd, args[1] = sub, args[2..] = rest
-  // For free-form pattern (chat, repl): args[0] = cmd, args[1..] = freeText
   const argv = process.argv.slice(2);
   const cmd = argv[0];
   const sub = argv[1];
   const rest = argv.slice(2);
 
-  if (cmd === 'help' || cmd === '--help' || cmd === '-h' || cmd === undefined) {
-    console.log(HELP);
+  // Version flags first (used by install.sh to verify the install
+  // without entering main()'s subcommand dispatch).
+  if (cmd === '--version' || cmd === '-V') {
+    showVersion();
     return;
   }
-  if (cmd === 'chat') {
-    // Free-form: capture everything from index 1 onwards
-    await chat(argv.slice(1).join(' ').trim());
+
+  // Top-level commands (no sub).
+  if (cmd === 'version' || cmd === undefined || cmd === 'help' || cmd === '--help' || cmd === '-h') {
+    if (cmd === 'version') {
+      showVersion();
+      return;
+    }
+    process.stdout.write(HELP);
     return;
   }
-  if (cmd === 'repl') {
-    await repl();
+
+  // Nested subcommands (config/plugin/memory).
+  if (runNested(cmd, sub, rest, argv)) {
     return;
   }
-  if (cmd === 'config' && sub === 'add') {
-    await configAdd(rest[0]);
+
+  // Top-level single-word commands.
+  if (COMMANDS[cmd]) {
+    await COMMANDS[cmd]({ argv, cmd, sub, rest });
     return;
   }
-  if (cmd === 'config' && sub === 'show') {
-    await configShow();
-    return;
-  }
-  if (cmd === 'plugin' && sub === 'add') {
-    await pluginAdd(rest[0]);
-    return;
-  }
-  if (cmd === 'plugin' && sub === 'list') {
-    await pluginList();
-    return;
-  }
-  if (cmd === 'memory' && sub === 'show') {
-    await memoryShow(rest[0]);
-    return;
-  }
-  if (cmd === 'memory' && sub === 'set') {
-    await memorySet(rest[0], rest.slice(1).join(' '));
-    return;
-  }
-  if (cmd === 'self-evolution') {
-    await selfEvolutionDispatch(sub, rest);
-    return;
-  }
-  // unknown: show help
-  console.log(HELP);
+
+  // Unknown -- show help.
+  process.stdout.write(HELP);
 }
 
 main().catch((e) => {
-  console.error(`✗ ${e.message}`);
+  process.stderr.write('x ' + (e?.message || String(e)) + '\n');
   process.exit(1);
 });

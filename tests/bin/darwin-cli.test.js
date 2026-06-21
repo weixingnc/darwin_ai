@@ -48,6 +48,17 @@ describe('darwin CLI (PR 19a)', () => {
     assert.ok(r.stdout.includes('Usage:'), `stdout was: ${r.stdout}`);
   });
 
+  test('darwin version / --version / -V prints package version and exits 0 (V23 installer check)', () => {
+    for (const flag of ['version', '--version', '-V']) {
+      const r = run([flag]);
+      assert.equal(r.status, 0, `[${flag}] expected exit 0, got ${r.status}. stderr: ${r.stderr}`);
+      assert.ok(
+        /^darwin v\d+\.\d+\.\d+/.test(r.stdout.trim()),
+        `[${flag}] stdout should start with 'darwin vX.Y.Z', was: ${JSON.stringify(r.stdout)}`,
+      );
+    }
+  });
+
   test('darwin (no args) shows help and exits 0', () => {
     const r = run([]);
     assert.equal(r.status, 0, `stderr: ${r.stderr}`);
