@@ -5,8 +5,8 @@
   "type": "module",
   "main": "core/event-bus.js",
   "scripts": {
-    "test": "NODE_ENV=test node --test tests/*.test.js tests/core/*.test.js tests/evolution/*.test.js tests/bin/*.test.js tests/integration/*.test.js tests/plugin/*.test.js tool/builtins/*.test.js memory/*.test.js skill/examples/*.test.js skill/examples/lib/*.test.js platform/*.test.js",
-    "test:watch": "NODE_ENV=test node --test tests/*.test.js tests/core/*.test.js tests/evolution/*.test.js tests/bin/*.test.js tests/integration/*.test.js tests/plugin/*.test.js tool/builtins/*.test.js memory/*.test.js skill/examples/*.test.js skill/examples/lib/*.test.js platform/*.test.js",
+    "test": "NODE_ENV=test node --test tests/*.test.js tests/core/*.test.js tests/evolution/*.test.js tests/bin/*.test.js tests/integration/*.test.js tests/plugin/*.test.js tool/builtins/*.test.js memory/*.test.js skill/examples/*.test.js skill/examples/lib/*.test.js platform/*.test.js web/*.test.js",
+    "test:watch": "NODE_ENV=test node --test tests/*.test.js tests/core/*.test.js tests/evolution/*.test.js tests/bin/*.test.js tests/integration/*.test.js tests/plugin/*.test.js tool/builtins/*.test.js memory/*.test.js skill/examples/*.test.js skill/examples/lib/*.test.js platform/*.test.js web/*.test.js",
     "test:coverage": "c8 --reporter=text --reporter=text-summary --reporter=html npm test",
     "coverage": "c8 --reporter=text-summary npm test",
     "coverage:html": "c8 --reporter=html npm test",
