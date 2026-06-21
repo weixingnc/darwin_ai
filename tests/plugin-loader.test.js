@@ -8,6 +8,9 @@ import assert from 'node:assert/strict';
 import { EventBus } from '../core/event-bus.js';
 import { PluginRegistry } from '../plugin/registry.js';
 import { EVENTS } from '../core/events.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 let createPluginLoader;
 const S = Object.freeze({
@@ -206,5 +209,32 @@ describe('loader — example logger integration', () => {
     const before = log.filter((x) => x.includes('plugin registered:')).length;
     c.eventBus.emit(EVENTS.PLUGIN_REGISTER, { name: 'tool-y' });
     assert.equal(log.filter((x) => x.includes('plugin registered:')).length, before);
+  });
+});
+
+describe('loader -- startWatcher / stopWatcher (V12)', () => {
+  let dir;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'darwin-v12-'));
+  });
+  afterEach(() => {
+    if (dir) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('startWatcher returns a handle; stopWatcher is idempotent', async () => {
+    const f = await loader();
+    const l = f(ctx());
+    const h = l.startWatcher(dir, { debounceMs: 30 });
+    assert.equal(typeof h.close, 'function');
+    assert.equal(h.stats.reloadAttempts, 0);
+    // Idempotent: a second call returns the same handle.
+    const h2 = l.startWatcher(dir, { debounceMs: 30 });
+    assert.equal(h2, h);
+    l.stopWatcher();
+    // Idempotent: stopping again is a no-op.
+    l.stopWatcher();
+    l.stopWatcher();
   });
 });

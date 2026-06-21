@@ -245,7 +245,10 @@ describe('P2c-3 end-to-end — Darwin self-evolution closed loop', () => {
     // V11 (2026-06-21): plugin-watcher joined the baseline — 8 in
     // DEFAULTS, plus the MISSING_PLUGIN grown in this test, so
     // total = 9.
-    assert.equal(report.current.plugins.length, 9);
+    // V12 (2026-06-21): loader-load + loader-discover joined the baseline — 10 in
+    // DEFAULTS, plus the MISSING_PLUGIN grown in this test, so
+    // total = 11.
+    assert.equal(report.current.plugins.length, 11);
   });
 
   test('git tag is reachable in the worktree + matches the rollback anchor for the apply', () => {
