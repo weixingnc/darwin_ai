@@ -40,6 +40,10 @@ idempotent`); the planned fs.watch event-delivery test is deferred to
   baseline bumped 9 -> 11 (loader-load + loader-discover are the 10th and 11th
   baseline plugins). Total: 1254 tests passing (was 1253). No LLM, no network.
 
+### Added (V23, 2026-06-21)
+
+- **V23 one-click install** (`feat(infra): one-click install + uninstall`): `install.sh` (Linux/macOS) and `install.ps1` (Windows) turn the project from a 3-step dev workflow (`git clone && npm install && chmod +x bin/darwin`) into one command. After install, `darwin --version` / `darwin help` works from any new shell. Includes idempotent update (re-running `install.sh` on an existing install does `git pull` + `npm install` in place), a provider-credential `.env` template (chmod 600), and a matching `uninstall.sh` / `uninstall.ps1` (with `--purge` to wipe memory + audit). `bin/darwin` gains a `version` subcommand (and `--version` / `-V` flags) for the installer self-test. CLI dispatch refactored into COMMANDS + SUBCOMMANDS tables to stay under the complexity=15 lint cap. `bin/darwin.cmd` + `bin/darwin.ps1` added for Windows shell launchers. Total: 1255 tests passing (was 1254).
+
 ### Added (V14-V17.1, 2026-06-20)
 
 - **V14 log rotate policy** (`chore(repo): v14 log rotate policy`): `core/log-rotate.js`

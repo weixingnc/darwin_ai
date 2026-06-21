@@ -10,12 +10,24 @@ change, applies it to its own repo, verifies, and rolls back if the build
 breaks. The whole loop is auditable, revertible, and human-approved by default.
 
 ```bash
+# One-line install (Linux / macOS)
+curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh | bash
+
+# One-line install (Windows PowerShell)
+# iwr -useb https://raw.githubusercontent.com/weixing/darwin/main/install.ps1 | iex
+
+# Or from a local clone (dev workflow):
 git clone <darwin> ~/darwin && cd ~/darwin
 npm install && chmod +x bin/darwin
-npm test                       # 1254/1254 pass (V12 baseline)
+npm test                       # 1255/1255 pass (V23 baseline)
+./bin/darwin --version         # verify install (V23+ adds this)
 ./bin/darwin help              # see all sub-commands
 ./bin/darwin self-evolution diagnose     # scan current capability surface
 ./bin/darwin self-evolution audit-query --topic evolution:audit --format json  # V17.1
+
+# Uninstall (any OS):
+# Linux/macOS:  bash uninstall.sh | bash
+# Windows:      iwr -useb .../uninstall.ps1 | iex
 ```
 
 ## Examples & developer docs
