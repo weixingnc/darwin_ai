@@ -2,19 +2,32 @@
 # Darwin one-click installer (Linux + macOS).
 #
 # Usage:
+#   # From git (default):
 #   curl -fsSL https://raw.githubusercontent.com/<owner>/darwin/<branch>/install.sh | bash
 #   curl ... | bash -s -- --branch dev
 #   curl ... | bash -s -- --dir /opt/darwin
 #
-# Environment overrides:
-#   DARWIN_REPO     git URL to clone (default: https://github.com/weixing/darwin.git)
-#   DARWIN_BRANCH   git branch/tag to checkout (default: main)
-#   DARWIN_HOME     install directory (default: $HOME/.darwin)
-#   DARWIN_BIN      bin directory for the `darwin` symlink (default: $HOME/.local/bin)
-#   DARWIN_VERSION  pinned version (overrides --branch; e.g. v0.1.0)
+#   # From a pre-built tarball (no git needed, used by V25 release workflow):
+#   curl ... | bash -s -- --from-tarball \
+#     https://github.com/<owner>/darwin/releases/download/<tag>/darwin-<tag>.tar.gz
 #
-# The script is idempotent: re-running updates an existing install
-# in-place (`git pull --ff-only` + `npm install --omit=dev`).
+#   # From a local already-extracted tarball (post-`tar -xzf`):
+#   tar -xzf darwin-v0.1.0.tar.gz
+#   cd darwin-v0.1.0
+#   bash install.sh --from-tarball-installed
+#
+# Environment overrides:
+#   DARWIN_REPO      git URL to clone (default: https://github.com/weixing/darwin.git)
+#   DARWIN_BRANCH    git branch/tag to checkout (default: main)
+#   DARWIN_HOME      install directory (default: $HOME/.darwin)
+#   DARWIN_BIN       bin directory for the `darwin` symlink (default: $HOME/.local/bin)
+#   DARWIN_VERSION   pinned git version (overrides --branch; e.g. v0.1.0)
+#   DARWIN_TARBALL   URL of a pre-built tarball (overrides --from-tarball flag)
+#
+# The script is idempotent: re-running with --repo updates an
+# existing install in-place (`git pull --ff-only` + `npm install`).
+# With --from-tarball, the existing install must be removed first
+# (tarballs aren't incrementally updateable).
 #
 # Exits non-zero on any failure (set -e). Network failures, missing
 # Node, missing git, missing permissions all bail out with a clear
@@ -28,6 +41,8 @@ BRANCH="${DARWIN_BRANCH:-main}"
 HOME_DIR="${DARWIN_HOME:-$HOME/.darwin}"
 BIN_DIR="${DARWIN_BIN:-$HOME/.local/bin}"
 PINNED_VERSION="${DARWIN_VERSION:-}"
+FROM_TARBALL="${DARWIN_TARBALL:-}"
+FROM_TARBALL_INSTALLED=0
 NO_PATH_UPDATE=0
 QUIET=0
 
@@ -38,15 +53,22 @@ Darwin one-click installer
 Usage:
   install.sh [options]
 
-Options:
-  --repo URL         git repository URL (default: $DARWIN_REPO or weixing/darwin)
-  --branch NAME      git branch to checkout (default: main)
-  --version TAG      pin to a specific version tag/commit (overrides --branch)
-  --dir PATH         install directory (default: $HOME/.darwin)
-  --bin PATH         bin directory for `darwin` symlink (default: $HOME/.local/bin)
-  --no-path-update   skip writing to shell rc files (PATH export hint)
-  -q, --quiet        suppress non-error output
-  -h, --help         show this help
+Source options (pick one):
+  (default)              git clone from $DARWIN_REPO (or --repo) at $DARWIN_BRANCH
+  --repo URL             git repository URL
+  --branch NAME          git branch to checkout (default: main)
+  --version TAG          pin to a specific git tag/commit (overrides --branch)
+  --from-tarball URL     install from a pre-built tarball (no git needed)
+  --from-tarball-installed   install from current dir (already-extracted tarball)
+
+Install layout:
+  --dir PATH             install directory (default: $HOME/.darwin)
+  --bin PATH             bin directory for `darwin` symlink (default: $HOME/.local/bin)
+
+Other:
+  --no-path-update       skip the "add to PATH" hint
+  -q, --quiet            suppress non-error output
+  -h, --help             show this help
 EOF
 }
 
@@ -55,6 +77,8 @@ while [ $# -gt 0 ]; do
     --repo) REPO="$2"; shift 2;;
     --branch) BRANCH="$2"; shift 2;;
     --version) PINNED_VERSION="$2"; shift 2;;
+    --from-tarball) FROM_TARBALL="$2"; shift 2;;
+    --from-tarball-installed) FROM_TARBALL_INSTALLED=1; shift;;
     --dir) HOME_DIR="$2"; shift 2;;
     --bin) BIN_DIR="$2"; shift 2;;
     --no-path-update) NO_PATH_UPDATE=1; shift;;
@@ -76,14 +100,23 @@ log ""
 log "Darwin installer"
 log "  install dir:  $HOME_DIR"
 log "  bin dir:      $BIN_DIR"
-log "  branch:       $BRANCH"
-[ -n "$PINNED_VERSION" ] && log "  pinned:       $PINNED_VERSION"
+if [ -n "$FROM_TARBALL_INSTALLED" ]; then
+  log "  source:       local (already extracted)"
+elif [ -n "$FROM_TARBALL" ]; then
+  log "  source:       tarball $FROM_TARBALL"
+else
+  log "  branch:       $BRANCH"
+  [ -n "$PINNED_VERSION" ] && log "  pinned:       $PINNED_VERSION"
+fi
 log ""
 
 # git
-if ! command -v git >/dev/null 2>&1; then
-  err "git is required. Install git and retry."
-  exit 65
+if [ -z "$FROM_TARBALL" ] && [ "$FROM_TARBALL_INSTALLED" -eq 0 ]; then
+  if ! command -v git >/dev/null 2>&1; then
+    err "git is required for the default git-based install."
+    err "Use --from-tarball URL to install without git."
+    exit 65
+  fi
 fi
 
 # node
@@ -107,17 +140,82 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 66
 fi
 
-# ---------- clone or update ----------
+# curl (for tarball + verify)
+if [ -n "$FROM_TARBALL" ] && ! command -v curl >/dev/null 2>&1; then
+  err "curl is required for --from-tarball."
+  exit 65
+fi
+
+# tar (for tarball extract)
+if [ -n "$FROM_TARBALL" ] && ! command -v tar >/dev/null 2>&1; then
+  err "tar is required for --from-tarball."
+  exit 65
+fi
+
+# ---------- resolve source ----------
 CLONE_DIR="$HOME_DIR"
 PARENT_DIR="$(dirname "$HOME_DIR")"
 
-# Make sure parent dir exists and is writable.
 if [ ! -d "$PARENT_DIR" ]; then
   err "parent directory does not exist: $PARENT_DIR"
   exit 73
 fi
 
-if [ -d "$CLONE_DIR/.git" ]; then
+if [ "$FROM_TARBALL_INSTALLED" -eq 1 ]; then
+  # User already extracted the tarball; treat the current dir as the source.
+  if [ ! -f "./install.sh" ] || [ ! -f "./bin/darwin" ] || [ ! -f "./package.json" ]; then
+    err "--from-tarball-installed: expected install.sh, bin/darwin, package.json in $PWD."
+    err "cd into the extracted tarball directory first."
+    exit 74
+  fi
+  # If $HOME_DIR exists and is not empty, refuse (tarball is install-only, not update).
+  if [ -d "$CLONE_DIR" ] && [ -n "$(ls -A "$CLONE_DIR" 2>/dev/null)" ] && [ "$CLONE_DIR" != "$(pwd)" ]; then
+    err "$CLONE_DIR already exists and is not empty. Remove it first or pass --dir."
+    exit 74
+  fi
+  if [ "$CLONE_DIR" != "$(pwd)" ]; then
+    log "Copying extracted tree from $(pwd) to $CLONE_DIR ..."
+    mkdir -p "$CLONE_DIR"
+    # Copy everything (including dotfiles) except the tarball itself.
+    shopt -s dotglob
+    cp -a ./. "$CLONE_DIR/"
+  else
+    log "Using $(pwd) as the install dir."
+  fi
+elif [ -n "$FROM_TARBALL" ]; then
+  # Download + extract a tarball.
+  if [ -d "$CLONE_DIR" ] && [ -n "$(ls -A "$CLONE_DIR" 2>/dev/null)" ]; then
+    err "$CLONE_DIR already exists and is not empty. Remove it first or pass --dir."
+    err "tarball install is install-only (no in-place update)."
+    exit 74
+  fi
+  log "Downloading tarball from $FROM_TARBALL ..."
+  mkdir -p "$CLONE_DIR"
+  # Download to a temp file first so a partial download doesn't
+  # leave a half-extracted tree behind.
+  TARBALL_TMP="$(mktemp -t darwin-tarball-XXXXXX.tar.gz)"
+  # shellcheck disable=SC2064
+  trap "rm -f '$TARBALL_TMP'" EXIT
+  if ! curl -fsSL --retry 3 -o "$TARBALL_TMP" "$FROM_TARBALL"; then
+    err "failed to download $FROM_TARBALL"
+    exit 75
+  fi
+  log "Extracting $TARBALL_TMP to $CLONE_DIR ..."
+  tar -xzf "$TARBALL_TMP" -C "$CLONE_DIR"
+  rm -f "$TARBALL_TMP"
+  trap - EXIT
+  # The tarball from release.yml extracts flat (no top-level subdir).
+  # If a future build wraps in a darwin-${VERSION}/ subdir, flatten it.
+  shopt -s nullglob
+  subdirs=("$CLONE_DIR"/darwin-*/)
+  if [ "${#subdirs[@]}" -eq 1 ] && [ ! -f "$CLONE_DIR/bin/darwin" ]; then
+    log "Flattening nested subdir $(basename "${subdirs[0]}") ..."
+    shopt -s dotglob
+    mv "${subdirs[0]}"/* "$CLONE_DIR/"
+    rmdir "${subdirs[0]}"
+  fi
+elif [ -d "$CLONE_DIR/.git" ]; then
+  # Existing git install -- update in place.
   log "Existing install detected at $CLONE_DIR -- updating."
   cd "$CLONE_DIR"
   if ! git remote get-url origin >/dev/null 2>&1; then
@@ -143,7 +241,7 @@ else
   log "Cloning $REPO into $CLONE_DIR ..."
   mkdir -p "$CLONE_DIR"
   if [ -n "$PINNED_VERSION" ]; then
-    git clone --depth 1 --branch "$PINNED_VERSION" "$EXISTING_REMOTE_FALLBACK" "$CLONE_DIR" 2>/dev/null \
+    git clone --depth 1 --branch "$PINNED_VERSION" "$REPO" "$CLONE_DIR" \
       || git clone --depth 1 "$REPO" "$CLONE_DIR"
   else
     git clone --depth 1 --branch "$BRANCH" "$REPO" "$CLONE_DIR"
@@ -152,7 +250,7 @@ else
 fi
 
 # ---------- install dependencies ----------
-log "Installing dependencies (npm install --omit=dev) ..."
+log "Installing dependencies (npm install --omit=dev --ignore-scripts) ..."
 cd "$CLONE_DIR"
 npm install --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error
 
@@ -161,10 +259,7 @@ log "Linking $BIN_DIR/darwin -> $CLONE_DIR/bin/darwin ..."
 mkdir -p "$BIN_DIR"
 chmod +x "$CLONE_DIR/bin/darwin"
 
-# Use a real symlink (not a copy) so future updates flow through.
 ln -sf "$CLONE_DIR/bin/darwin" "$BIN_DIR/darwin"
-
-# Some shells also look for `darwin` without a suffix; symlink that too.
 ln -sf "$CLONE_DIR/bin/darwin" "$BIN_DIR/darwin-bin" 2>/dev/null || true
 
 # ---------- create ~/.darwin/.env template ----------
@@ -203,23 +298,16 @@ else
   log "Existing $ENV_FILE preserved (not overwritten)."
 fi
 
-# ---------- PATH hint ----------
-PATH_OK=0
-case ":$PATH:" in
-  *":$BIN_DIR:"*) PATH_OK=1;;
-esac
-
 # ---------- verify install ----------
 log ""
 log "Verifying install ..."
-if "$BIN_DIR/darwin" version >/dev/null 2>&1; then
-  INSTALLED_VERSION="$("$BIN_DIR/darwin" version 2>/dev/null || true)"
-  log "  $($BIN_DIR/darwin version 2>/dev/null || echo darwin unknown)"
+INSTALLED_VERSION="$("$BIN_DIR/darwin" version 2>/dev/null || true)"
+if [ -n "$INSTALLED_VERSION" ]; then
+  log "  $INSTALLED_VERSION"
   log "  install OK"
 else
   err "darwin command failed self-test (version subcommand)."
   err "  $BIN_DIR/darwin version"
-  err "Try running it manually to see the error."
   exit 1
 fi
 
@@ -234,6 +322,11 @@ log ""
 log "  Next step: edit $ENV_FILE to set your API key,"
 log "  then run:  darwin chat \"hello\""
 log ""
+
+PATH_OK=0
+case ":$PATH:" in
+  *":$BIN_DIR:"*) PATH_OK=1;;
+esac
 
 if [ "$PATH_OK" -eq 0 ] && [ "$NO_PATH_UPDATE" -eq 0 ]; then
   log "  Note: $BIN_DIR is not in your PATH."

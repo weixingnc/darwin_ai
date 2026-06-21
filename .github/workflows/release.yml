@@ -1,0 +1,105 @@
+﻿name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Need write access to create a release + attach the tarball.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build tarball + GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history is useful for `git log` in the release notes.
+          fetch-depth: 0
+
+      - name: Verify the tag matches package.json
+        shell: bash
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"           # e.g. v0.1.0
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          # Strip leading 'v' from the tag, compare to package.json.
+          TAG_VERSION="${TAG#v}"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG (= $TAG_VERSION) does not match package.json ($PKG_VERSION)."
+            echo "::error::Run \`npm version $TAG_VERSION\` to align, or \`git tag -d $TAG && git tag $TAG\` after."
+            exit 1
+          fi
+          echo "Tag $TAG matches package.json $PKG_VERSION."
+
+      - name: Build tarball
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME}"
+          # .git + node_modules + coverage + .nyc_output + *.log excluded.
+          # The result extracts to a single top-level dir (the repo root) so
+          # downstream install.sh can `tar -xz -C <dir> --strip-components=0`
+          # (or --strip-components=1 if we wrap in a darwin-${VERSION}/ subdir).
+          tar \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='coverage' \
+            --exclude='.nyc_output' \
+            --exclude='*.log' \
+            -czf "darwin-${VERSION}.tar.gz" -C . .
+          ls -lh "darwin-${VERSION}.tar.gz"
+
+      - name: Create release + attach tarball
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Darwin ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            Darwin ${{ github.ref_name }} — auto-generated release tarball.
+
+            Install (one command, no git required):
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh \
+              | bash -s -- --from-tarball \
+                https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/darwin-${{ github.ref_name }}.tar.gz
+            ```
+
+            Or, two-step (more inspectable):
+
+            ```bash
+            curl -fsLO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/darwin-${{ github.ref_name }}.tar.gz
+            tar -xzf darwin-${{ github.ref_name }}.tar.gz
+            bash ./install.sh --from-tarball-installed
+            ```
+
+            See `CHANGELOG.md` for what changed in this release.
+          files: |
+            darwin-${{ github.ref_name }}.tar.gz
+
+      - name: Smoke test the just-uploaded tarball
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME}"
+          TARBALL_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/darwin-${VERSION}.tar.gz"
+          # Wait a few seconds for the release asset to be available.
+          sleep 10
+          mkdir -p /tmp/darwin-release-smoke
+          cd /tmp/darwin-release-smoke
+          echo "Downloading $TARBALL_URL ..."
+          curl -fsSL -o "darwin.tar.gz" "$TARBALL_URL"
+          tar -xzf "darwin.tar.gz"
+          echo "Extracted files:"
+          ls -la install.sh uninstall.sh bin/darwin package.json | head -10
+          echo "Running install.sh --from-tarball-installed into /tmp/darwin-smoke ..."
+          bash install.sh --from-tarball-installed --dir /tmp/darwin-smoke --bin /tmp/darwin-smoke-bin --no-path-update
+          /tmp/darwin-smoke-bin/darwin --version
+          echo "Smoke test passed."
