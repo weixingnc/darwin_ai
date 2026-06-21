@@ -28,6 +28,19 @@ npm test                       # 1255/1255 pass (V23 baseline)
 # Uninstall (any OS):
 # Linux/macOS:  bash uninstall.sh | bash
 # Windows:      iwr -useb .../uninstall.ps1 | iex
+
+# From a pre-built tarball (V25+, no git required):
+# Linux/macOS:
+#   curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh \
+#     | bash -s -- --from-tarball https://github.com/weixing/darwin/releases/download/v0.1.0/darwin-v0.1.0.tar.gz
+# Windows (install.ps1 tarball mode coming in V25.1):
+#   iwr -useb .../install.ps1 | iex; Install-Darwin -FromTarball <url>
+
+# Or two-step (more inspectable):
+#   curl -fsLO <tarball-url>
+#   tar -xzf darwin-v0.1.0.tar.gz
+#   cd darwin-v0.1.0
+#   bash install.sh --from-tarball-installed
 ```
 
 ## Examples & developer docs

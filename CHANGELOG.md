@@ -40,6 +40,25 @@ idempotent`); the planned fs.watch event-delivery test is deferred to
   baseline bumped 9 -> 11 (loader-load + loader-discover are the 10th and 11th
   baseline plugins). Total: 1254 tests passing (was 1253). No LLM, no network.
 
+### Added (V25-actual, 2026-06-21)
+
+- **V25-actual tarball release pipeline** (`chore(release): tarball
+release pipeline + install.sh tarball mode`): adds a
+  `v*`-tag-triggered release workflow that builds a tarball of the
+  just-tested tree, attaches it to a GitHub Release, and runs an
+  end-to-end smoke test on the just-uploaded asset (curl the tarball
+  from the GitHub URL, extract, run `install.sh
+--from-tarball-installed`, assert `darwin --version` returns the
+  right version). `install.sh` gains two new modes:
+  `--from-tarball URL` (download + extract + install in one command;
+  no git needed) and `--from-tarball-installed` (install from an
+  already-extracted tarball directory). This makes the one-line
+  install truly one-line on Linux/macOS without a git dependency.
+  Windows `install.ps1` tarball mode deferred to V25.1 due to
+  shell-escaping issues in the PowerShell + SCP upload chain.
+  No new in-tree tests; the existing 1255 stay green. The release
+  workflow itself is the integration test for the tarball path.
+
 ### Added (V23, 2026-06-21)
 
 - **V23 one-click install** (`feat(infra): one-click install + uninstall`): `install.sh` (Linux/macOS) and `install.ps1` (Windows) turn the project from a 3-step dev workflow (`git clone && npm install && chmod +x bin/darwin`) into one command. After install, `darwin --version` / `darwin help` works from any new shell. Includes idempotent update (re-running `install.sh` on an existing install does `git pull` + `npm install` in place), a provider-credential `.env` template (chmod 600), and a matching `uninstall.sh` / `uninstall.ps1` (with `--purge` to wipe memory + audit). `bin/darwin` gains a `version` subcommand (and `--version` / `-V` flags) for the installer self-test. CLI dispatch refactored into COMMANDS + SUBCOMMANDS tables to stay under the complexity=15 lint cap. `bin/darwin.cmd` + `bin/darwin.ps1` added for Windows shell launchers. Total: 1255 tests passing (was 1254).
