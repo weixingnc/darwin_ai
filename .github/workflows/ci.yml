@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -16,6 +16,7 @@ permissions:
   contents: read
 
 jobs:
+  # V19 baseline: lint + size + test on the just-checked-out tree.
   verify:
     name: npm run verify
     runs-on: ubuntu-latest
@@ -50,3 +51,80 @@ jobs:
       #   run: npm run test:coverage
       # - name: Security audit
       #   uses: github/codeql-action/analyze@v3
+
+  # V24-actual: end-to-end test of the one-click install on a clean
+  # runner. install.sh clones the just-pushed tree from the same
+  # repo (via the github context), runs npm install (production
+  # deps only), links the CLI, and verifies `darwin --version`
+  # prints the right version. Then uninstall.sh cleans up.
+  install-e2e-linux:
+    name: install.sh end-to-end (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: verify
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run install.sh into /tmp
+        run: bash install.sh --dir /tmp/darwin-test --bin /tmp/darwin-test-bin --no-path-update
+        env:
+          # Use the same repo we're testing so the install is
+          # guaranteed to land on the just-pushed commit.
+          DARWIN_REPO: ${{ github.server_url }}/${{ github.repository }}.git
+          DARWIN_BRANCH: ${{ github.ref_name }}
+
+      - name: Verify install (version)
+        run: /tmp/darwin-test-bin/darwin --version
+
+      - name: Verify install (help)
+        run: /tmp/darwin-test-bin/darwin help | head -3
+
+      - name: Verify install (config show)
+        run: /tmp/darwin-test-bin/darwin config show
+
+      - name: Run uninstall.sh to clean up
+        run: bash uninstall.sh --dir /tmp/darwin-test --bin /tmp/darwin-test-bin
+
+  # V24-actual: same end-to-end test on Windows. install.ps1
+  # generates a .cmd + .ps1 launcher pair and verifies
+  # `darwin.cmd version` returns the right version.
+  install-e2e-windows:
+    name: install.ps1 end-to-end (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 5
+    needs: verify
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run install.ps1 into $HOME
+        shell: pwsh
+        run: ./install.ps1 -Home $HOME/darwin-test -Bin $HOME/darwin-test-bin -NoPathUpdate
+        env:
+          DARWIN_REPO: ${{ github.server_url }}/${{ github.repository }}.git
+          DARWIN_BRANCH: ${{ github.ref_name }}
+
+      - name: Verify install (version)
+        shell: pwsh
+        run: cmd.exe /c "$HOME/darwin-test-bin/darwin.cmd version"
+
+      - name: Verify install (help)
+        shell: pwsh
+        run: cmd.exe /c "$HOME/darwin-test-bin/darwin.cmd help" | Select-Object -First 3
+
+      - name: Run uninstall.ps1 to clean up
+        shell: pwsh
+        run: ./uninstall.ps1 -Home $HOME/darwin-test -Bin $HOME/darwin-test-bin
