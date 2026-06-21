@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Darwin CLI — one-line installer entry point.
  *
