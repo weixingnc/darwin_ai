@@ -12,7 +12,7 @@ breaks. The whole loop is auditable, revertible, and human-approved by default.
 ```bash
 git clone <darwin> ~/darwin && cd ~/darwin
 npm install && chmod +x bin/darwin
-npm test                       # 1253/1253 pass (V11 baseline)
+npm test                       # 1254/1254 pass (V12 baseline)
 ./bin/darwin help              # see all sub-commands
 ./bin/darwin self-evolution diagnose     # scan current capability surface
 ./bin/darwin self-evolution audit-query --topic evolution:audit --format json  # V17.1

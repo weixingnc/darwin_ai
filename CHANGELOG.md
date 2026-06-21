@@ -25,6 +25,21 @@ lifecycle`): `plugin/watcher.js` provides `reloadPlugin(absPath, loader)` and
   plugin). Wired into the 5-stage plugin lifecycle (load -> init -> enable,
   disable -> unload). No LLM, no network. Total: 1253 tests passing (was 1247).
 
+### Added (V12, 2026-06-21)
+
+- **V12 plugin loader owns watcher lifecycle** (`feat(plugin): loader owns
+watcher lifecycle`): `plugin/loader.js` now exposes `startWatcher(dir, opts)` and
+  `stopWatcher()`. Consumers (bin/darwin, REPL) wire plugin hot-reload with
+  two calls at boot/shutdown instead of by hand-wiring plugin/loader.js +
+  plugin/watcher.js. To stay under the 200-line cap, the factory is slimmed
+  by extracting `load + tryLoadFile` to `plugin/loader-load.js` (89L) and
+  `discover` to `plugin/loader-discover.js` (62L); the factory itself went from
+  254L to 224L. 1 new test (`startWatcher returns a handle; stopWatcher is
+idempotent`); the planned fs.watch event-delivery test is deferred to
+  V22+ e2e (sandbox-flaky). `tests/evolution/p2c3-end-to-end.test.js` catalogue
+  baseline bumped 9 -> 11 (loader-load + loader-discover are the 10th and 11th
+  baseline plugins). Total: 1254 tests passing (was 1253). No LLM, no network.
+
 ### Added (V14-V17.1, 2026-06-20)
 
 - **V14 log rotate policy** (`chore(repo): v14 log rotate policy`): `core/log-rotate.js`
