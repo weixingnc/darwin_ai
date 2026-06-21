@@ -1,12 +1,21 @@
 # Darwin one-click installer (Windows PowerShell 5.1+ / PowerShell Core 7+).
 #
 # Usage (from PowerShell):
+#   # From git (default):
 #   iwr -useb https://raw.githubusercontent.com/<owner>/darwin/<branch>/install.ps1 | iex
 #   iwr ... | iex; Install-Darwin -Branch dev
 #
+#   # From a pre-built tarball (no git needed, used by V25+ release):
+#   iwr -useb .../install.ps1 | iex; Install-Darwin -FromTarball <url>
+#
+#   # From a local already-extracted tarball:
+#   tar -xzf darwin-v0.1.0.tar.gz
+#   cd darwin-v0.1.0
+#   ./install.ps1 -FromTarballInstalled
+#
 # After install:
-#   - $HOME\.darwin\                 = git clone of the repo
-#   - $HOME\.local\bin\darwin.cmd    = launcher (and darwin.ps1)
+#   - $HOME\.darwin\                 = installed tree
+#   - $HOME\.local\bin\darwin.cmd    = launcher
 #   - $HOME\.darwin\.env             = config template
 #   - `darwin --version` works from any new shell
 #
@@ -17,6 +26,8 @@ param(
   [string]$Repo = $env:DARWIN_REPO,
   [string]$Branch = $env:DARWIN_BRANCH,
   [string]$Version = $env:DARWIN_VERSION,
+  [string]$FromTarball = $env:DARWIN_TARBALL,
+  [switch]$FromTarballInstalled,
   [string]$Home = $env:DARWIN_HOME,
   [string]$Bin = $env:DARWIN_BIN,
   [switch]$NoPathUpdate,
@@ -29,19 +40,24 @@ $ErrorActionPreference = 'Stop'
 if ($Help) {
   Write-Host 'Darwin one-click installer (Windows)'
   Write-Host ''
-  Write-Host 'Usage:'
-  Write-Host '  iwr -useb https://raw.githubusercontent.com/<owner>/darwin/<branch>/install.ps1 | iex'
+  Write-Host 'Source options (pick one):'
+  Write-Host '  (default)              git clone from $Repo at $Branch'
+  Write-Host '  -Repo URL              git repository URL'
+  Write-Host '  -Branch NAME           git branch (default: main)'
+  Write-Host '  -Version TAG           pin to a specific git tag/commit (overrides -Branch)'
+  Write-Host '  -FromTarball URL       install from a pre-built tarball (no git needed)'
+  Write-Host '  -FromTarballInstalled  install from current dir (already-extracted tarball)'
   Write-Host ''
-  Write-Host 'Options:'
-  Write-Host '  -Repo URL         git repository URL'
-  Write-Host '  -Branch NAME      git branch (default: main)'
-  Write-Host '  -Version TAG      pin to a specific version (overrides -Branch)'
-  Write-Host '  -Home PATH        install directory (default: $HOME\.darwin)'
-  Write-Host '  -Bin PATH         bin directory (default: $HOME\.local\bin)'
-  Write-Host '  -NoPathUpdate     skip the PATH hint'
-  Write-Host '  -Quiet            suppress non-error output'
+  Write-Host 'Install layout:'
+  Write-Host '  -Home PATH             install directory (default: $HOME\.darwin)'
+  Write-Host '  -Bin PATH              bin directory (default: $HOME\.local\bin)'
+  Write-Host ''
+  Write-Host 'Other:'
+  Write-Host '  -NoPathUpdate          skip the PATH hint'
+  Write-Host '  -Quiet                 suppress non-error output'
   exit 0
 }
+
 if (-not $Repo)    { $Repo = 'https://github.com/weixing/darwin.git' }
 if (-not $Branch)  { $Branch = 'main' }
 if (-not $Home)    { $Home = Join-Path $env:USERPROFILE '.darwin' }
@@ -58,15 +74,23 @@ Log ''
 Log 'Darwin installer'
 Log "  install dir:  $Home"
 Log "  bin dir:      $Bin"
-Log "  branch:       $Branch"
-if ($Version) { Log "  pinned:       $Version" }
+if ($FromTarballInstalled) {
+  Log '  source:       local (already extracted)'
+} elseif ($FromTarball) {
+  Log "  source:       tarball $FromTarball"
+} else {
+  Log "  branch:       $Branch"
+  if ($Version) { Log "  pinned:       $Version" }
+}
 Log ''
 
 # ----- preflight -----
-$git = Get-Command git -ErrorAction SilentlyContinue
-if (-not $git) {
-  Err 'git is required. Install Git for Windows (https://git-scm.com/download/win) and retry.'
-  exit 65
+if (-not $FromTarball -and -not $FromTarballInstalled) {
+  $git = Get-Command git -ErrorAction SilentlyContinue
+  if (-not $git) {
+    Err 'git is required for the default git-based install. Use -FromTarball <url> to install without git.'
+    exit 65
+  }
 }
 
 $node = Get-Command node -ErrorAction SilentlyContinue
@@ -86,13 +110,78 @@ if (-not $npm) {
   Err 'npm is required (comes with Node.js).'
   exit 66
 }
-# ----- clone or update -----
+
+if ($FromTarball) {
+  $curl = Get-Command curl -ErrorAction SilentlyContinue
+  if (-not $curl) {
+    Err 'curl is required for -FromTarball (Windows 10 1803+ ships it).'
+    exit 65
+  }
+  $tar = Get-Command tar -ErrorAction SilentlyContinue
+  if (-not $tar) {
+    Err 'tar is required for -FromTarball (Windows 10 1803+ ships it).'
+    exit 65
+  }
+}
+
+# ----- resolve source -----
 $parent = Split-Path -Parent $Home
 if (-not (Test-Path $parent)) {
   New-Item -ItemType Directory -Path $parent -Force | Out-Null
 }
 
-if (Test-Path (Join-Path $Home '.git')) {
+if ($FromTarballInstalled) {
+  $pwdHasInstall = (Test-Path '.\install.ps1') -and (Test-Path '.\bin\darwin') -and (Test-Path '.\package.json')
+  if (-not $pwdHasInstall) {
+    Err '-FromTarballInstalled: expected install.ps1, bin\darwin, package.json in $PWD.'
+    Err 'cd into the extracted tarball directory first.'
+    exit 74
+  }
+  $homeEmpty = -not (Test-Path $Home) -or -not (Get-ChildItem -Force $Home -ErrorAction SilentlyContinue)
+  if (-not $homeEmpty -and ($Home -ne (Get-Location).Path)) {
+    Err "$Home already exists and is not empty. Remove it first or pass -Home."
+    exit 74
+  }
+  if ($Home -ne (Get-Location).Path) {
+    Log "Copying extracted tree from $(Get-Location) to $Home ..."
+    New-Item -ItemType Directory -Path $Home -Force | Out-Null
+    Copy-Item -Path '. \*' -Destination $Home -Recurse -Force
+  } else {
+    Log "Using $(Get-Location) as the install dir."
+  }
+} elseif ($FromTarball) {
+  if (Test-Path $Home) {
+    $existing = Get-ChildItem -Force $Home -ErrorAction SilentlyContinue
+    if ($existing.Count -gt 0) {
+      Err "$Home already exists and is not empty. Remove it first or pass -Home."
+      Err 'tarball install is install-only (no in-place update).'
+      exit 74
+    }
+  }
+  Log "Downloading tarball from $FromTarball ..."
+  New-Item -ItemType Directory -Path $Home -Force | Out-Null
+  $tarballTmp = Join-Path $env:TEMP ("darwin-tarball-" + [guid]::NewGuid() + ".tar.gz")
+  try {
+    & curl -fsSL --retry 3 -o $tarballTmp $FromTarball
+    if ($LASTEXITCODE -ne 0) {
+      Err "failed to download $FromTarball"
+      exit 75
+    }
+    Log "Extracting $tarballTmp to $Home ..."
+    Push-Location $Home
+    try {
+      & tar -xzf $tarballTmp
+      if ($LASTEXITCODE -ne 0) {
+        Err 'tar extraction failed'
+        exit 76
+      }
+    } finally {
+      Pop-Location
+    }
+  } finally {
+    if (Test-Path $tarballTmp) { Remove-Item -Force $tarballTmp }
+  }
+} elseif (Test-Path (Join-Path $Home '.git')) {
   Log "Existing install detected at $Home -- updating."
   Push-Location $Home
   try {
@@ -117,8 +206,8 @@ if (Test-Path (Join-Path $Home '.git')) {
 } elseif (Test-Path $Home) {
   $existing = Get-ChildItem -Force $Home -ErrorAction SilentlyContinue
   if ($existing.Count -gt 0) {
-    Err "directory exists and is not a git repo: $Home"
-    Err "remove it (Remove-Item -Recurse -Force $Home) or pass -Home to use a different path."
+    Err "$Home already exists and is not a git repo."
+    Err 'remove it (Remove-Item -Recurse -Force) or pass -Home to use a different path.'
     exit 74
   }
   Log "Cloning $Repo into $Home ..."
@@ -127,11 +216,12 @@ if (Test-Path (Join-Path $Home '.git')) {
   Log "Cloning $Repo into $Home ..."
   git clone --depth 1 --branch $Branch $Repo $Home
 }
+
 # ----- install dependencies -----
-Log 'Installing dependencies (npm install --omit=dev) ...'
+Log 'Installing dependencies (npm install --omit=dev --ignore-scripts) ...'
 Push-Location $Home
 try {
-  npm install --omit=dev --no-audit --no-fund --loglevel=error | Out-Null
+  npm install --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error | Out-Null
 } finally {
   Pop-Location
 }
@@ -153,10 +243,9 @@ if (-not (Test-Path $ps1)) {
   Set-Content -Path $ps1 -Value $ps1Body -Encoding ASCII
 }
 
-# ----- link launchers into $Bin -----
-# On Windows, symlinks to .cmd require admin / dev mode, so we copy.
 Copy-Item -Path $cmd -Destination (Join-Path $Bin 'darwin.cmd') -Force
 Copy-Item -Path $ps1 -Destination (Join-Path $Bin 'darwin.ps1') -Force
+
 # ----- create ~/.darwin/.env template -----
 $envDir = Join-Path (Split-Path -Parent $Home) '.darwin'
 if (-not (Test-Path $envDir)) { New-Item -ItemType Directory -Path $envDir -Force | Out-Null }
