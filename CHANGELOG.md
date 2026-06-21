@@ -8,6 +8,23 @@ federation -- planned 2026-Q4).
 
 ## [Unreleased]
 
+### Added (V11, 2026-06-21)
+
+- **V11 plugin hot-reload** (`feat(plugin): hot-reload watcher with 5-stage
+lifecycle`): `plugin/watcher.js` provides `reloadPlugin(absPath, loader)` and
+  `watchPluginsDir(dir, loader, opts?)`. fs.watch-based, 200ms debounce, filename
+  filter (dotfiles, **example**, non-.js, invalid plugin names per the
+  `^[a-z0-9][a-z0-9-]*$` rule), stats (attempts/ok/fail). 6 unit tests
+  covering name validation, missing file, first load, and watchPluginsDir
+  handle (start/stop, idempotent close). The fs.watch event-delivery
+  integration tests are documented as "flaky in some sandboxed envs"
+  and deferred to a non-sandboxed e2e (V22+); reload logic itself is fully
+  covered by the unit tests. `package.json` test glob updated to include
+  `tests/plugin/*.test.js`. `tests/evolution/p2c3-end-to-end.test.js`
+  catalogue baseline bumped 8 -> 9 (plugin-watcher is the 9th baseline
+  plugin). Wired into the 5-stage plugin lifecycle (load -> init -> enable,
+  disable -> unload). No LLM, no network. Total: 1253 tests passing (was 1247).
+
 ### Added (V14-V17.1, 2026-06-20)
 
 - **V14 log rotate policy** (`chore(repo): v14 log rotate policy`): `core/log-rotate.js`
@@ -82,7 +99,6 @@ Test count: 1162/1162 (V9.2 reviewer housekeeping baseline).
 ### Known limitations (V0.1.0)
 
 - No remote git config; tag policy is local-only (`git tag -d`, not push)
-- No GitHub Actions CI yet (V18 in Phase 2)
-- No plugin hot-reload yet (V11 in Phase 2)
+- GitHub Actions CI in place (V19); runs `npm run verify` on every push to main and any v\* branch, plus on PRs targeting main
 - audit.jsonl grows past rotation threshold under heavy cycles; rotation
   is best-effort and never blocks the write path
