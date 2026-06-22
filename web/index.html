@@ -31,6 +31,8 @@
     }
     h1 { margin: 0; font-size: 1.25rem; }
     .version { color: var(--muted); font-size: 0.875rem; }
+    .status { color: var(--muted); font-size: 0.875rem; }
+    .status.live { color: var(--accent); }
     main {
       flex: 1;
       overflow-y: auto;
@@ -45,6 +47,17 @@
     .msg.assistant { background: var(--panel); max-width: 80%; }
     .msg.error { background: #7f1d1d; color: var(--err); }
     .msg pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; }
+    /* V32: blinking caret while the assistant is streaming. The caret
+       is a single zero-width character on the last line of the
+       pre; the keyframe lives outside .msg so it always animates. */
+    .caret::after {
+      content: '\2588';
+      display: inline-block;
+      color: var(--accent);
+      margin-left: 1px;
+      animation: blink 1s steps(2, start) infinite;
+    }
+    @keyframes blink { to { visibility: hidden; } }
     form {
       padding: 1rem 1.5rem;
       border-top: 1px solid #334155;
@@ -78,27 +91,45 @@
       cursor: pointer;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { background: var(--panel); color: var(--fg); border: 1px solid #334155; }
     .hint { color: var(--muted); font-size: 0.875rem; text-align: center; padding: 2rem; }
   </style>
 </head>
 <body>
   <header>
     <h1>Darwin</h1>
-    <span class="version" id="version">v...</span>
+    <div>
+      <span class="status" id="status">idle</span>
+      <span class="version" id="version">v...</span>
+    </div>
   </header>
   <main id="messages">
     <div class="hint">Ask Darwin anything. Set your provider with <code>darwin config add</code> on the host first.</div>
   </main>
   <form id="form">
+    <button type="button" id="stop" class="secondary" hidden>Stop</button>
     <textarea id="input" placeholder="Message Darwin..." autofocus required></textarea>
     <button type="submit" id="send">Send</button>
   </form>
   <script>
+    // V32: SSE streaming chat. POSTs to /api/chat with
+    // Accept: text/event-stream and parses the response body as SSE
+    // frames. EventSource can't POST, so we use fetch() + ReadableStream
+    // to do the same thing manually.
     const form = document.getElementById('form');
     const input = document.getElementById('input');
     const send = document.getElementById('send');
+    const stop = document.getElementById('stop');
     const messages = document.getElementById('messages');
     const versionEl = document.getElementById('version');
+    const statusEl = document.getElementById('status');
+
+    let activeStream = null; // AbortController for the in-flight request
+
+    function setStatus(text, live) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle('live', !!live);
+    }
 
     function append(role, text) {
       const div = document.createElement('div');
@@ -108,6 +139,37 @@
       div.appendChild(pre);
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
+      return pre;
+    }
+
+    function appendStreaming() {
+      // Returns a handle with .append(text), .finish(), and .fail(err)
+      // methods. While streaming, a blinking caret is appended to the
+      // last line of the pre. finish() / fail() remove the caret and
+      // turn the role into a regular assistant message.
+      const div = document.createElement('div');
+      div.className = 'msg assistant';
+      const pre = document.createElement('pre');
+      pre.classList.add('caret');
+      div.appendChild(pre);
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+      return {
+        append(text) {
+          pre.textContent += text;
+          messages.scrollTop = messages.scrollHeight;
+        },
+        finish() {
+          pre.classList.remove('caret');
+          messages.scrollTop = messages.scrollHeight;
+        },
+        fail(errText) {
+          pre.classList.remove('caret');
+          div.className = 'msg error';
+          pre.textContent = 'x ' + errText;
+          messages.scrollTop = messages.scrollHeight;
+        },
+      };
     }
 
     async function loadVersion() {
@@ -120,35 +182,150 @@
       }
     }
 
+    // Parse an SSE byte stream into { type: 'chunk'|'done'|'error', ... }
+    // objects. The server's frame shape is:
+    //   data: {"type":"chunk","text":"..."}\\n\\n
+    //   data: {"type":"done"}\\n\\n
+    //   data: {"type":"error","error":"..."}\\n\\n
+    function parseSseStream(body) {
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const queue = [];
+      let resolveNext = null;
+      const pump = () =>
+        reader.read().then(({ value, done }) => {
+          if (done) {
+            // Flush any trailing frame (no trailing \\n\\n).
+            if (buffer.trim()) {
+              const frame = parseFrame(buffer);
+              if (frame) queue.push(frame);
+            }
+            queue.push({ type: '__done__' });
+            if (resolveNext) {
+              resolveNext();
+              resolveNext = null;
+            }
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = buffer.indexOf('\\n\\n')) !== -1) {
+            const block = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const frame = parseFrame(block);
+            if (frame) queue.push(frame);
+          }
+          if (resolveNext) {
+            resolveNext();
+            resolveNext = null;
+          }
+        });
+      // Start pumping in the background.
+      pump().catch((e) => {
+        queue.push({ type: 'error', error: String(e) });
+        queue.push({ type: '__done__' });
+        if (resolveNext) {
+          resolveNext();
+          resolveNext = null;
+        }
+      });
+      return {
+        async next() {
+          if (queue.length > 0) return queue.shift();
+          return new Promise((res) => {
+            resolveNext = () => res(queue.shift());
+          });
+        },
+      };
+    }
+
+    function parseFrame(block) {
+      // block is "data: {json}" (possibly multi-line; we don't use that yet).
+      const line = block.split('\\n').find((l) => l.startsWith('data: '));
+      if (!line) return null;
+      try {
+        return JSON.parse(line.slice('data: '.length));
+      } catch {
+        return null;
+      }
+    }
+
     async function sendMessage(message) {
       append('user', message);
-      const placeholder = document.createElement('div');
-      placeholder.className = 'msg assistant';
-      placeholder.textContent = '...';
-      messages.appendChild(placeholder);
-      messages.scrollTop = messages.scrollHeight;
+      const stream = appendStreaming();
+      const ac = new AbortController();
+      activeStream = ac;
+      stop.hidden = false;
       send.disabled = true;
       input.disabled = true;
+      setStatus('streaming', true);
+      let finished = false;
       try {
         const r = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+          },
           body: JSON.stringify({ message }),
+          signal: ac.signal,
         });
-        const j = await r.json();
-        placeholder.remove();
-        if (r.ok) {
-          append('assistant', j.reply || '(empty reply)');
-        } else {
-          append('error', j.error || 'HTTP ' + r.status);
+        if (!r.ok) {
+          // V31: 400 is validation; 500 is provider error. The body
+          // is JSON in both cases. Surface the error message.
+          let j;
+          try {
+            j = await r.json();
+          } catch {
+            j = { error: 'HTTP ' + r.status };
+          }
+          stream.fail(j.error || 'HTTP ' + r.status);
+          return;
         }
+        if (!r.body) {
+          stream.fail('no response body');
+          return;
+        }
+        const sse = parseSseStream(r.body);
+        for (;;) {
+          const frame = await sse.next();
+          if (!frame || frame.type === '__done__') break;
+          if (frame.type === 'chunk') {
+            stream.append(frame.text || '');
+          } else if (frame.type === 'done') {
+            finished = true;
+            break;
+          } else if (frame.type === 'error') {
+            stream.fail(frame.error || 'stream error');
+            finished = true;
+            break;
+          }
+        }
+        if (!finished) stream.finish();
       } catch (e) {
-        placeholder.remove();
-        append('error', String(e));
+        if (e && e.name === 'AbortError') {
+          stream.finish();
+        } else {
+          stream.fail(String(e));
+        }
       } finally {
+        activeStream = null;
+        stop.hidden = true;
         send.disabled = false;
         input.disabled = false;
+        setStatus('idle', false);
         input.focus();
+      }
+    }
+
+    function stopStream() {
+      if (activeStream) {
+        try {
+          activeStream.abort();
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -158,6 +335,10 @@
       if (!message) return;
       input.value = '';
       sendMessage(message);
+    });
+
+    stop.addEventListener('click', () => {
+      stopStream();
     });
 
     // Enter to send, Shift+Enter for newline.

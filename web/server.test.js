@@ -236,3 +236,23 @@ describe('web/server (V31) — Server-Sent Events for /api/chat', () => {
     assert.ok(j.error, 'JSON path should return { error: ... }, got: ' + JSON.stringify(j));
   });
 });
+
+describe('web/index.html (V32) — streaming chat UI', () => {
+  test('GET / serves the chat HTML with V32 streaming markers', async () => {
+    const r = await http('GET', '/');
+    assert.equal(r.status, 200);
+    const html = await r.text();
+    // V32 markers: EventSource-style fetch + Accept header
+    assert.ok(
+      html.includes("Accept: 'text/event-stream'"),
+      'index.html should request text/event-stream',
+    );
+    assert.ok(html.includes('parseSseStream'), 'index.html should define parseSseStream');
+    assert.ok(html.includes("type === 'chunk'"), 'index.html should handle chunk frames');
+    assert.ok(html.includes("type === 'done'"), 'index.html should handle done frames');
+    assert.ok(html.includes("type === 'error'"), 'index.html should handle error frames');
+    assert.ok(html.includes('AbortController'), 'index.html should support stop/abort');
+    // V32 visual
+    assert.ok(html.includes('caret'), 'index.html should show a blinking caret while streaming');
+  });
+});
