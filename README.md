@@ -41,6 +41,11 @@ npm test                       # 1255/1255 pass (V23 baseline)
 #   tar -xzf darwin-v0.1.0.tar.gz
 #   cd darwin-v0.1.0
 #   bash install.sh --from-tarball-installed
+
+# Run the local web UI (V28, zero-dep http + chat):
+#   node web/server.js
+#   # Open http://localhost:8080 in a browser
+#   # Configure provider first: darwin config add anthropic <key>
 ```
 
 ## Examples & developer docs

@@ -6,7 +6,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 as of v0.2.0 (currently still v0.1.0; v1.0.0 cut deferred to V22 multi-Darwin
 federation -- planned 2026-Q4).
 
-## [Unreleased]
+### Added (V28, 2026-06-21)
+
+- **V28 zero-dependency web layer** (`feat(web): zero-dep http layer +
+chat ui (v28)`): ships a local browser UI on top of Darwin without
+  pulling in Express, Fastify, or any other http framework. Three new
+  files under `web/`:
+  - `web/server.js` (165L) — Node `http` + `child_process` server.
+    `POST /api/chat` shells out to `node bin/darwin chat "<msg>"` and
+    streams the response back. Listens on `PORT` (8080) and binds
+    `HOST` (127.0.0.1) for loopback-only by default. Exports
+    `{ server, PORT, HOST }` so the test suite can spawn a real process.
+  - `web/index.html` (168L) — vanilla HTML/CSS/JS chat UI, dark theme,
+    Enter-to-send, `/api/chat` POST + `GET /` static. No build step, no
+    CDN, no framework. Edit the file, refresh the browser, done.
+  - `web/server.test.js` (129L) — 9 tests covering: GET / returns 200
+    - text/html, POST /api/chat with valid payload, POST with empty
+      body rejected (400), POST with missing `message` rejected (400),
+      server binds to configured HOST/PORT, CORS preflight returns
+      204, unknown route returns 404, malformed JSON returns 400, server
+      shuts down on close().
+- `package.json` — `web/*.test.js` glob added to `test` and `test:watch`
+  targets (test glob is one long string; test:watch is `node --test
+--watch`). 1264/1264 tests pass (was 1255, +9 from V28).
+- BOM hotfix (`fix(web): strip utf-8 bom from index.html (v28.1)`):
+  `web/index.html` was written with a utf-8 BOM (ef bb bf), which some
+  browsers mishandle. Stripped to plain `<!doctype html>`. 1 file, 1 line.
+  No behaviour change in the running app; only the source bytes differ.
 
 ### Added (V11, 2026-06-21)
 
