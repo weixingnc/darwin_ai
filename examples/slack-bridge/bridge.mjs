@@ -54,12 +54,25 @@ const DARWIN_URL = (process.env.DARWIN_URL || 'http://127.0.0.1:8080').replace(/
 const DARWIN_TOKEN = process.env.DARWIN_TOKEN || '';
 const DARWIN_CHANNEL = process.env.DARWIN_CHANNEL || 'slack';
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';
+// V41: allow tests (and self-hosted slack-compatible alternatives
+// like Mattermost) to override the API base. Default is the
+// production Slack URL.
+const SLACK_API_BASE = process.env.SLACK_API_BASE || 'https://slack.com/api';
 
 // In-memory record of the last N replies the bridge has handled.
 // Used by tests; harmless in production (memory is bounded by
 // MAX_REPLY_HISTORY, oldest entries fall off the front).
 const MAX_REPLY_HISTORY = 50;
 const replyHistory = [];
+
+// V41: cache slack channel_id by user_id so the /slack/reply
+// handler (which only gets user_id from the darwin envelope)
+// can find the right channel to chat.postMessage to. We keep
+// at most MAX_REPLY_HISTORY entries; the FIFO eviction means
+// a user who hasn't messaged in a while will fall back to
+// the safe default ('unknown') and the reply is dropped with
+// a logged warning instead of going to the wrong channel.
+const channelByUser = new Map();
 
 function pushHistory(entry) {
   replyHistory.push(entry);
@@ -140,7 +153,7 @@ async function postToSlack(channel, text) {
     // Local dev / test path: just log.
     return { ok: true, mocked: true };
   }
-  const r = await fetch('https://slack.com/api/chat.postMessage', {
+  const r = await fetch(SLACK_API_BASE + '/chat.postMessage', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + SLACK_BOT_TOKEN,
@@ -217,6 +230,13 @@ async function handleSlackEvents(req, res) {
     }
     const userId = body.event.user || null;
     const channel = body.event.channel || null;
+    // V41: remember the slack channel_id keyed by user so the
+    // /slack/reply handler can route the darwin reply back to
+    // the right place. Without this, postToSlack() would have to
+    // guess the channel from user_id alone, which is impossible.
+    if (userId && channel) {
+      channelByUser.set(userId, channel);
+    }
     const meta = {
       team: body.team_id || null,
       event_id: body.event.event_id || null,
@@ -238,11 +258,28 @@ async function handleSlackReply(req, res) {
     return json(res, 400, { error: e.message });
   }
   const text = body && body.reply;
-  const channel = body && body.user_id;
+  const userId = body && body.user_id;
+  // V41: look up the slack channel_id we recorded during the
+  // forward step. If we have never seen this user (e.g. darwin
+  // generated a synthetic user_id, or the bridge restarted),
+  // we cannot safely route the reply; log a warning and drop
+  // it rather than guess the wrong channel.
+  const channel = userId ? channelByUser.get(userId) : null;
+  if (!channel) {
+    pushHistory({
+      ts: Date.now(),
+      kind: 'reply',
+      user: userId,
+      text,
+      forward: { ok: false, error: 'unknown user; no channel recorded' },
+    });
+    return json(res, 200, { ok: true, dropped: 'unknown user' });
+  }
   pushHistory({
     ts: Date.now(),
     kind: 'reply',
-    user: channel,
+    user: userId,
+    channel,
     text,
     forward: await postToSlack(channel, text).catch((e) => ({ ok: false, error: e.message })),
   });

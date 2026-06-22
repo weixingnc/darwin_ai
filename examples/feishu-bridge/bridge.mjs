@@ -69,6 +69,11 @@ const DARWIN_TOKEN = process.env.DARWIN_TOKEN || '';
 const DARWIN_CHANNEL = process.env.DARWIN_CHANNEL || 'feishu';
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID || '';
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || '';
+// V41: allow tests and self-hosted Feishu-compatible alternatives
+// to override the API base. Default is the production Feishu URL.
+const FEISHU_API_BASE = process.env.FEISHU_API_BASE || 'https://open.feishu.cn';
+const FEISHU_AUTH_PATH = process.env.FEISHU_AUTH_PATH || '/open-apis/auth/v3/tenant_access_token/internal';
+const FEISHU_MSG_PATH = process.env.FEISHU_MSG_PATH || '/open-apis/im/v1/messages';
 const FEISHU_ENCRYPT_KEY = process.env.FEISHU_ENCRYPT_KEY || '';
 
 // Feishu signature verification: HMAC-SHA256 of (timestamp + key) base64.
@@ -102,6 +107,13 @@ function verifyFeishuSignature(headers, _rawBody) {
 
 const MAX_REPLY_HISTORY = 50;
 const replyHistory = [];
+
+// V41: cache feishu chat_id keyed by open_id so the /feishu/reply
+// handler (which only gets user_id from the darwin envelope)
+// can find the right chat to send the reply to. Without this,
+// postToFeishu() would have to guess the chat_id from open_id,
+// which is impossible.
+const chatByUser = new Map();
 
 function pushHistory(entry) {
   replyHistory.push(entry);
@@ -245,6 +257,62 @@ function forwardAndRecord(text, userId, chatId, meta) {
     });
 }
 
+// V41: real outbound to Feishu. Fetches a tenant_access_token
+// (cached for 110 minutes; Feishu tokens are valid 2h) and POSTs
+// the reply to im/v1/messages. Returns { ok, status, body }.
+// receive_id_type defaults to open_id which is what the V38
+// forward path stores in chatByUser.
+let feishuToken = null;
+let feishuTokenExpiresAt = 0;
+async function getFeishuTenantToken() {
+  if (feishuToken && Date.now() < feishuTokenExpiresAt) {
+    return feishuToken;
+  }
+  if (!FEISHU_APP_ID || !FEISHU_APP_SECRET) {
+    throw new Error('FEISHU_APP_ID and FEISHU_APP_SECRET must be set to call Feishu APIs');
+  }
+  const r = await fetch(
+    FEISHU_API_BASE + FEISHU_AUTH_PATH,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: FEISHU_APP_ID, app_secret: FEISHU_APP_SECRET }),
+    },
+  );
+  const j = await r.json().catch(() => ({}));
+  if (j.code !== 0 || !j.tenant_access_token) {
+    throw new Error('failed to fetch feishu token: ' + JSON.stringify(j));
+  }
+  feishuToken = j.tenant_access_token;
+  // Refresh 5 min early to avoid edge cases at the 2h boundary.
+  feishuTokenExpiresAt = Date.now() + (110 * 60 * 1000);
+  return feishuToken;
+}
+
+async function postToFeishu(receiveId, text) {
+  if (!FEISHU_APP_ID || !FEISHU_APP_SECRET) {
+    return { ok: true, mocked: true };
+  }
+  const token = await getFeishuTenantToken();
+  const r = await fetch(
+    FEISHU_API_BASE + FEISHU_MSG_PATH + '?receive_id_type=open_id',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        receive_id: receiveId,
+        msg_type: 'text',
+        content: JSON.stringify({ text }),
+      }),
+    },
+  );
+  const j = await r.json().catch(() => ({}));
+  return { ok: j.code === 0, status: r.status, body: j };
+}
+
 function parseFeishuContent(rawContent) {
   try {
     return extractFeishuText(JSON.parse(rawContent || '{}'));
@@ -260,6 +328,12 @@ function handleUserMessageEvent(res, body) {
   }
   const userId = body.event.sender.sender_id.open_id || body.event.sender.sender_id.user_id || null;
   const chatId = body.event.message.chat_id || null;
+  // V41: remember the feishu chat_id keyed by open_id so the
+  // /feishu/reply handler can route the darwin reply back to
+  // the right chat.
+  if (userId && chatId) {
+    chatByUser.set(userId, chatId);
+  }
   const meta = {
     message_id: body.event.message.message_id || null,
     chat_type: body.event.message.chat_type || null,
@@ -292,20 +366,40 @@ async function handleFeishuEvents(req, res) {
 }
 
 async function handleFeishuReply(req, res) {
-  let body;
+  let parsed;
   try {
-    body = await readBody(req);
+    parsed = await readBody(req);
   } catch (e) {
     return json(res, 400, { error: e.message });
   }
-  const text = body && body.reply;
-  const chatId = body && body.user_id;
+  // readBody() returns { json, text }. V38 used body.reply /
+  // body.user_id directly which was a no-op because the parsed
+  // wrapper has no such keys; fix is to read from .json.
+  const body = (parsed && parsed.json) || {};
+  const text = body.reply;
+  const userId = body.user_id;
+  // V41: look up the feishu chat_id we recorded during the
+  // forward step. If we have never seen this user (e.g. the
+  // bridge restarted), we cannot safely route the reply;
+  // log a warning and drop it rather than guess the wrong chat.
+  const chatId = userId ? chatByUser.get(userId) : null;
+  if (!chatId) {
+    pushHistory({
+      ts: Date.now(),
+      kind: 'reply',
+      user: userId,
+      text,
+      forward: { ok: false, error: 'unknown user; no chat recorded' },
+    });
+    return json(res, 200, { ok: true, dropped: 'unknown user' });
+  }
   pushHistory({
     ts: Date.now(),
     kind: 'reply',
+    user: userId,
     chat: chatId,
     text,
-    forward: { ok: true, mocked: !FEISHU_APP_ID || !FEISHU_APP_SECRET },
+    forward: await postToFeishu(chatId, text).catch((e) => ({ ok: false, error: e.message })),
   });
   return json(res, 200, { ok: true });
 }

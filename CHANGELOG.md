@@ -6,6 +6,52 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 as of v0.2.0 (currently still v0.1.0; v1.0.0 cut deferred to V22 multi-Darwin
 federation -- planned 2026-Q4).
 
+### Added (V41, 2026-06-22)
+
+- **V41 real outbound to Slack + Feishu from bridges**
+  (`feat(examples): real outbound to slack + feishu from bridge (v41)`):
+  the V37/V38 bridges both accepted darwin replies at
+  `/slack/reply` and `/feishu/reply` but the outbound
+  path was a mock (V37) or a TODO (V38). V41 wires the
+  real vendor APIs:
+  - slack: `chat.postMessage` against
+    `SLACK_API_BASE/chat.postMessage` (default
+    `https://slack.com/api`) with the bot token from
+    `SLACK_BOT_TOKEN`.
+  - feishu: `auth/v3/tenant_access_token/internal` +
+    `im/v1/messages` against `FEISHU_API_BASE`
+    (default `https://open.feishu.cn`) using
+    `FEISHU_APP_ID` / `FEISHU_APP_SECRET`. Tenant token
+    is cached for 110 minutes (Feishu tokens are valid
+    2h; we refresh 5 min early).
+    Both bridges also fix a V37 bug: the `/<chan>/reply`
+    handler used to take `user_id` from the darwin envelope
+    and call it `channel`/`chat_id`, which would have
+    posted the reply to a wrong/impossible target if the
+    path were ever exercised for real. V41 records the
+    channel/chat at forward time in a per-bridge
+    `channelByUser` / `chatByUser` Map, then looks it up
+    on reply. If the lookup misses (e.g. bridge restart,
+    darwin-synthesised user_id) the reply is dropped with
+    `{ ok: true, dropped: 'unknown user' }` and
+    a logged warning rather than sent to the wrong
+    channel. 4 files: `examples/slack-bridge/bridge.mjs`
+    (V41 delta: SLACK_API_BASE, channelByUser Map, real
+    postToSlack call, 'unknown user' drop path),
+    `examples/feishu-bridge/bridge.mjs` (V41 delta:
+    FEISHU_API_BASE/AUTH_PATH/MSG_PATH, chatByUser Map,
+    getFeishuTenantToken with 110-min cache, postToFeishu,
+    bugfix in handleFeishuReply to read from
+    `parsed.json` instead of the `{json,text}` wrapper
+    returned by readBody), and matching +1 V41 test in
+    each bridge.test.mjs. V41 tests use a fake darwin
+    (responds to /api/webhook/<chan>) + a fake vendor API
+    (responds to chat.postMessage / im/v1/messages) so the
+    full forward->reply->outbound flow is exercised
+    without a real LLM provider or real Slack/Feishu.
+    1320/1320 npm test pass (was 1318, +2 from this
+    commit). ESLint clean.
+
 ### Added (V38, 2026-06-22)
 
 - **V38 feishu-bridge example** (`feat(examples): feishu-bridge

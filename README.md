@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh | ba
 # Or from a local clone (dev workflow):
 git clone <darwin> ~/darwin && cd ~/darwin
 npm install && chmod +x bin/darwin
-npm test                       # 1318/1318 pass (V38 baseline)
+npm test                       # 1320/1320 pass (V41 baseline)
 ./bin/darwin --version         # verify install (V23+ adds this)
 ./bin/darwin help              # see all sub-commands
 ./bin/darwin self-evolution diagnose     # scan current capability surface
