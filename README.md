@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh | ba
 # Or from a local clone (dev workflow):
 git clone <darwin> ~/darwin && cd ~/darwin
 npm install && chmod +x bin/darwin
-npm test                       # 1255/1255 pass (V23 baseline)
+npm test                       # 1302/1302 pass (V34 baseline)
 ./bin/darwin --version         # verify install (V23+ adds this)
 ./bin/darwin help              # see all sub-commands
 ./bin/darwin self-evolution diagnose     # scan current capability surface
@@ -46,6 +46,39 @@ npm test                       # 1255/1255 pass (V23 baseline)
 #   node web/server.js
 #   # Open http://localhost:8080 in a browser
 #   # Configure provider first: darwin config add anthropic <key>
+
+# Or via the CLI wrapper (V29-actual):
+#   darwin web                       # foreground, Ctrl+C to stop
+#   darwin web --port 9000 --host 0.0.0.0
+#   darwin web --detach              # background, write pidfile, exit
+#   darwin web stop                  # SIGTERM -> SIGKILL after 2s
+#   darwin web status                # pid, url, uptime, masked auth token
+
+# Server-Sent Events (V31): POST /api/chat with
+# `Accept: text/event-stream` streams provider chunks as
+#   data: {"type":"chunk","text":"..."}\n\n
+#   data: {"type":"done"}\n\n
+#   data: {"type":"error","error":"..."}\n\n
+# The web UI (V32) uses EventSource-style fetch() to render
+# the assistant's reply token-by-token with a blinking caret.
+
+# Bearer-token auth (V33): the CLI generates a 64-char hex token at
+# ~/.darwin/web.token (mode 0o600) on first launch and forwards
+# it to the child via WEB_AUTH_TOKEN. Send it as either
+#   Authorization: Bearer <token>
+#   X-Darwin-Token: <token>
+#   ?token=<token>            (one-shot link, captured by the V34 UI)
+# `darwin web status` prints a masked preview + the full path.
+# /api/health stays open (and reports auth_required: true) so a
+# load balancer can probe without holding the secret.
+
+# Browser login (V34): on first open, the page shows a "Sign in"
+# card asking for the token. After paste, the token is stored in
+# localStorage and reused silently. A one-shot link like
+#   http://localhost:8080/?token=<token>
+# is auto-adopted and the query string is stripped from the URL
+# so the secret does not leak via browser history or referer.
+# A "Sign out" button in the header clears the token.
 ```
 
 ## Examples & developer docs
