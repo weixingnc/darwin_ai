@@ -239,7 +239,7 @@ describe('web/server (V31) — Server-Sent Events for /api/chat', () => {
 });
 
 describe('web/index.html (V32) — streaming chat UI', () => {
-  test('GET / serves the chat HTML with V32 streaming markers', async () => {
+  test('GET / serves the chat HTML with V32 + V34 markers', async () => {
     const r = await http('GET', '/');
     assert.equal(r.status, 200);
     const html = await r.text();
@@ -253,8 +253,25 @@ describe('web/index.html (V32) — streaming chat UI', () => {
     assert.ok(html.includes("type === 'done'"), 'index.html should handle done frames');
     assert.ok(html.includes("type === 'error'"), 'index.html should handle error frames');
     assert.ok(html.includes('AbortController'), 'index.html should support stop/abort');
-    // V32 visual
     assert.ok(html.includes('caret'), 'index.html should show a blinking caret while streaming');
+    // V34 auth markers
+    assert.ok(
+      html.includes('darwin.authToken'),
+      'index.html should use a localStorage key for the auth token',
+    );
+    assert.ok(
+      html.includes("'Authorization'"),
+      'index.html should inject Authorization header on protected fetches',
+    );
+    assert.ok(html.includes('authedFetch'), 'index.html should define an authedFetch wrapper');
+    assert.ok(
+      html.includes("searchParams.get('token')"),
+      'index.html should capture ?token=... from the URL',
+    );
+    assert.ok(
+      html.includes('Sign in') || html.includes('Sign out'),
+      'index.html should expose a sign-in / sign-out UI',
+    );
   });
 });
 

@@ -47,9 +47,7 @@
     .msg.assistant { background: var(--panel); max-width: 80%; }
     .msg.error { background: #7f1d1d; color: var(--err); }
     .msg pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; }
-    /* V32: blinking caret while the assistant is streaming. The caret
-       is a single zero-width character on the last line of the
-       pre; the keyframe lives outside .msg so it always animates. */
+    /* V32: blinking caret while the assistant is streaming. */
     .caret::after {
       content: '\2588';
       display: inline-block;
@@ -68,7 +66,7 @@
       margin: 0 auto;
       box-sizing: border-box;
     }
-    textarea {
+    textarea, input[type="password"] {
       flex: 1;
       background: var(--panel);
       color: var(--fg);
@@ -80,6 +78,7 @@
       min-height: 2.5rem;
       max-height: 8rem;
     }
+    input[type="password"] { min-height: 2.5rem; resize: none; }
     button {
       background: var(--accent);
       color: #0c1929;
@@ -93,29 +92,65 @@
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     button.secondary { background: var(--panel); color: var(--fg); border: 1px solid #334155; }
     .hint { color: var(--muted); font-size: 0.875rem; text-align: center; padding: 2rem; }
+    /* V34: login overlay covers main until the user provides a valid token. */
+    .login-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .login-card {
+      background: var(--panel);
+      padding: 1.5rem 2rem;
+      border-radius: 0.75rem;
+      max-width: 480px;
+      width: 100%;
+      border: 1px solid #334155;
+    }
+    .login-card h2 { margin: 0 0 0.5rem 0; font-size: 1.125rem; }
+    .login-card p { color: var(--muted); margin: 0 0 1rem 0; font-size: 0.875rem; }
+    .login-card form { padding: 0; border: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+    .login-card .err { color: var(--err); font-size: 0.875rem; min-height: 1.25em; }
   </style>
 </head>
 <body>
   <header>
     <h1>Darwin</h1>
     <div>
-      <span class="status" id="status">idle</span>
+      <span class="status" id="status">connecting</span>
       <span class="version" id="version">v...</span>
+      <button type="button" id="logout" class="secondary" hidden>Sign out</button>
     </div>
   </header>
-  <main id="messages">
+  <main id="messages" hidden>
     <div class="hint">Ask Darwin anything. Set your provider with <code>darwin config add</code> on the host first.</div>
   </main>
-  <form id="form">
+  <form id="form" hidden>
     <button type="button" id="stop" class="secondary" hidden>Stop</button>
     <textarea id="input" placeholder="Message Darwin..." autofocus required></textarea>
     <button type="submit" id="send">Send</button>
   </form>
+  <div class="login-wrap" id="loginWrap" hidden>
+    <div class="login-card">
+      <h2>Sign in</h2>
+      <p>Enter the auth token printed by <code>darwin web</code> on the host. The token is stored in this browser's localStorage only.</p>
+      <form id="loginForm">
+        <input type="password" id="token" autocomplete="off" required placeholder="paste token">
+        <div class="err" id="loginErr"></div>
+        <button type="submit" id="loginBtn">Sign in</button>
+      </form>
+    </div>
+  </div>
   <script>
-    // V32: SSE streaming chat. POSTs to /api/chat with
-    // Accept: text/event-stream and parses the response body as SSE
-    // frames. EventSource can't POST, so we use fetch() + ReadableStream
-    // to do the same thing manually.
+    // V34: auth flow + V32 streaming chat. The page boots by calling
+    // /api/health to discover whether the server requires auth. If
+    // auth_required is true, we look for a token in localStorage
+    // (or capture ?token=... from the URL) and either enter the
+    // chat or render the login card. Every protected fetch goes
+    // through authedFetch(), which injects the Authorization header
+    // and reacts to 401 by clearing the token and bouncing back to
+    // the login screen.
     const form = document.getElementById('form');
     const input = document.getElementById('input');
     const send = document.getElementById('send');
@@ -123,12 +158,98 @@
     const messages = document.getElementById('messages');
     const versionEl = document.getElementById('version');
     const statusEl = document.getElementById('status');
+    const logoutBtn = document.getElementById('logout');
+    const loginWrap = document.getElementById('loginWrap');
+    const loginForm = document.getElementById('loginForm');
+    const tokenInput = document.getElementById('token');
+    const loginErr = document.getElementById('loginErr');
+    const loginBtn = document.getElementById('loginBtn');
+
+    const TOKEN_KEY = 'darwin.authToken';
 
     let activeStream = null; // AbortController for the in-flight request
+    let authRequired = false; // discovered from /api/health on boot
+    let authToken = null; // current bearer token (mirrors localStorage)
+
+    function readToken() {
+      try {
+        return localStorage.getItem(TOKEN_KEY);
+      } catch (_) {
+        return null;
+      }
+    }
+    function writeToken(t) {
+      try {
+        localStorage.setItem(TOKEN_KEY, t);
+      } catch (_) {
+        /* ignore quota / private-mode */
+      }
+    }
+    function clearToken() {
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    // V34: extract ?token= from the URL once on boot. If present,
+    // we adopt it (saving the user from copy-paste) and strip the
+    // query so it does not leak into browser history or shared
+    // screenshots.
+    function adoptTokenFromUrl() {
+      const url = new URL(window.location.href);
+      const t = url.searchParams.get('token');
+      if (t && t.length > 0) {
+        writeToken(t);
+        url.searchParams.delete('token');
+        const clean = url.pathname + (url.search ? url.search : '') + url.hash;
+        window.history.replaceState({}, document.title, clean);
+        return t;
+      }
+      return null;
+    }
 
     function setStatus(text, live) {
       statusEl.textContent = text;
       statusEl.classList.toggle('live', !!live);
+    }
+
+    function showLogin(errMsg) {
+      authToken = null;
+      clearToken();
+      logoutBtn.hidden = true;
+      form.hidden = true;
+      messages.hidden = true;
+      loginWrap.hidden = false;
+      loginErr.textContent = errMsg || '';
+      tokenInput.value = '';
+      tokenInput.focus();
+    }
+
+    function showChat() {
+      logoutBtn.hidden = false;
+      form.hidden = false;
+      messages.hidden = false;
+      loginWrap.hidden = true;
+      setStatus('idle', false);
+      input.focus();
+    }
+
+    // V34: a fetch wrapper that injects the bearer token when auth
+    // is required. It also detects 401 and bounces back to the
+    // login screen, so a stale token does not leave the user stuck.
+    async function authedFetch(path, opts = {}) {
+      const headers = { ...(opts.headers || {}) };
+      if (authRequired && authToken) {
+        headers['Authorization'] = 'Bearer ' + authToken;
+      }
+      const r = await fetch(path, { ...opts, headers });
+      if (authRequired && r.status === 401) {
+        showLogin('token rejected -- paste the new one');
+        throw new Error('auth failed');
+      }
+      return r;
     }
 
     function append(role, text) {
@@ -143,10 +264,6 @@
     }
 
     function appendStreaming() {
-      // Returns a handle with .append(text), .finish(), and .fail(err)
-      // methods. While streaming, a blinking caret is appended to the
-      // last line of the pre. finish() / fail() remove the caret and
-      // turn the role into a regular assistant message.
       const div = document.createElement('div');
       div.className = 'msg assistant';
       const pre = document.createElement('pre');
@@ -174,9 +291,10 @@
 
     async function loadVersion() {
       try {
-        const r = await fetch('/api/health');
+        const r = await authedFetch('/api/health');
         const j = await r.json();
         versionEl.textContent = 'v' + j.version;
+        authRequired = !!j.auth_required;
       } catch {
         versionEl.textContent = 'unknown';
       }
@@ -196,7 +314,6 @@
       const pump = () =>
         reader.read().then(({ value, done }) => {
           if (done) {
-            // Flush any trailing frame (no trailing \\n\\n).
             if (buffer.trim()) {
               const frame = parseFrame(buffer);
               if (frame) queue.push(frame);
@@ -221,7 +338,6 @@
             resolveNext = null;
           }
         });
-      // Start pumping in the background.
       pump().catch((e) => {
         queue.push({ type: 'error', error: String(e) });
         queue.push({ type: '__done__' });
@@ -241,7 +357,6 @@
     }
 
     function parseFrame(block) {
-      // block is "data: {json}" (possibly multi-line; we don't use that yet).
       const line = block.split('\\n').find((l) => l.startsWith('data: '));
       if (!line) return null;
       try {
@@ -262,7 +377,7 @@
       setStatus('streaming', true);
       let finished = false;
       try {
-        const r = await fetch('/api/chat', {
+        const r = await authedFetch('/api/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -272,8 +387,6 @@
           signal: ac.signal,
         });
         if (!r.ok) {
-          // V31: 400 is validation; 500 is provider error. The body
-          // is JSON in both cases. Surface the error message.
           let j;
           try {
             j = await r.json();
@@ -306,6 +419,9 @@
       } catch (e) {
         if (e && e.name === 'AbortError') {
           stream.finish();
+        } else if (e && e.message === 'auth failed') {
+          // authedFetch already routed us to the login screen.
+          return;
         } else {
           stream.fail(String(e));
         }
@@ -329,6 +445,67 @@
       }
     }
 
+    // --- V34: boot flow -------------------------------------------------
+
+    async function boot() {
+      setStatus('connecting', false);
+      // 1. Capture ?token=... if the URL has one (one-shot link).
+      const urlToken = adoptTokenFromUrl();
+      if (urlToken) authToken = urlToken;
+      // 2. Probe /api/health. /api/health is open even with auth on, so
+      //    this tells us whether the server wants a token without
+      //    failing the boot on missing creds.
+      let health;
+      try {
+        const r = await fetch('/api/health');
+        if (!r.ok) {
+          showLogin('health check failed: HTTP ' + r.status);
+          return;
+        }
+        health = await r.json();
+      } catch (e) {
+        showLogin('cannot reach the server: ' + String(e));
+        return;
+      }
+      versionEl.textContent = 'v' + (health.version || '?');
+      authRequired = !!health.auth_required;
+      // 3. Branch on auth mode.
+      if (!authRequired) {
+        showChat();
+        return;
+      }
+      // Auth required. Try stored token, else fall back to login card.
+      if (!authToken) authToken = readToken();
+      if (!authToken) {
+        showLogin('');
+        return;
+      }
+      // We have a candidate token. Verify it against a protected route
+      // (POST /api/chat with an obviously-empty message returns 400 if
+      // auth passes, 401 if it doesn't -- either is a clear signal).
+      try {
+        const r = await authedFetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: '' }),
+        });
+        if (r.status === 401) {
+          showLogin('saved token rejected -- paste the new one');
+          return;
+        }
+        // 400 means "empty message" -- auth passed, so we can enter.
+        if (r.status === 400) {
+          showChat();
+          return;
+        }
+        // Anything else (500, 200, ...) we treat as "good enough" --
+        // the server is up and we got past the auth gate.
+        showChat();
+      } catch (_) {
+        showLogin('saved token rejected -- paste the new one');
+      }
+    }
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const message = input.value.trim();
@@ -341,7 +518,6 @@
       stopStream();
     });
 
-    // Enter to send, Shift+Enter for newline.
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -349,7 +525,24 @@
       }
     });
 
-    loadVersion();
+    // V34: login form submit.
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const t = tokenInput.value.trim();
+      if (!t) return;
+      authToken = t;
+      writeToken(t);
+      loginErr.textContent = '';
+      // Re-run boot to verify and enter the chat.
+      boot();
+    });
+
+    // V34: Sign out -- clear the token and bounce to login.
+    logoutBtn.addEventListener('click', () => {
+      showLogin('');
+    });
+
+    boot();
   </script>
 </body>
 </html>
