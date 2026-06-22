@@ -56,6 +56,12 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import {
+  isChannelAllowed,
+  verifyChannelSecret,
+  chatSync,
+  deliverReply,
+} from '../bin/lib/webhook.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
@@ -354,6 +360,100 @@ async function handlePostChat(req, res) {
   return true;
 }
 
+// V36: channel webhook entry. URL: POST /api/webhook/<channel>.
+// Body: { message, reply_url, user_id?, meta? }
+// Headers (optional): X-Darwin-Channel-Secret: <secret>
+// Behaviour:
+//   1. V33 auth (handled upstream by requireAuth).
+//   2. Channel allowlist (env WEBHOOK_CHANNELS, comma-separated;
+//      empty = allow all).
+//   3. Per-channel secret (env WEBHOOK_SECRET_<UPPER>) if set.
+//   4. Run `darwin chat` synchronously and POST { reply, channel,
+//      user_id?, meta? } to reply_url. We always 200 to the
+//      caller as soon as the chat call returns, even if delivery
+//      fails -- the caller's webhook is fire-and-forget; delivery
+//      failures are reported in the JSON body so the caller can
+//      decide to retry.
+function authorizeChannel(req, channel) {
+  if (!isChannelAllowed(channel)) {
+    return { ok: false, status: 403, error: 'channel not allowed' };
+  }
+  const provided = req.headers['x-darwin-channel-secret'];
+  if (!verifyChannelSecret(channel, provided)) {
+    return { ok: false, status: 401, error: 'channel secret mismatch' };
+  }
+  return { ok: true };
+}
+
+async function readWebhookBody(req) {
+  let body;
+  try {
+    body = await readJson(req);
+  } catch (e) {
+    return { ok: false, status: 400, error: e.message };
+  }
+  const message = body && typeof body.message === 'string' ? body.message : '';
+  if (!message.trim()) {
+    return { ok: false, status: 400, error: 'message is required' };
+  }
+  const replyUrl = body && typeof body.reply_url === 'string' ? body.reply_url : '';
+  if (!replyUrl) {
+    return { ok: false, status: 400, error: 'reply_url is required' };
+  }
+  return {
+    ok: true,
+    value: {
+      message,
+      replyUrl,
+      userId: body && typeof body.user_id === 'string' ? body.user_id : null,
+      meta: body && body.meta && typeof body.meta === 'object' ? body.meta : null,
+    },
+  };
+}
+
+async function handlePostWebhook(req, res, _url, channel) {
+  const auth = authorizeChannel(req, channel);
+  if (!auth.ok) {
+    send(res, auth.status, { error: auth.error, channel });
+    return true;
+  }
+  const parsed = await readWebhookBody(req);
+  if (!parsed.ok) {
+    send(res, parsed.status, { error: parsed.error });
+    return true;
+  }
+  const { message, replyUrl, userId, meta } = parsed.value;
+  let reply;
+  try {
+    reply = await chatSync(message);
+  } catch (e) {
+    send(res, 500, { error: e.message, channel, delivered: false });
+    return true;
+  }
+  let delivery;
+  try {
+    delivery = await deliverReply(replyUrl, {
+      reply,
+      channel,
+      user_id: userId,
+      meta,
+    });
+  } catch (e) {
+    send(res, 200, {
+      status: 'chat_ok_delivery_failed',
+      channel,
+      delivery_error: e.message,
+    });
+    return true;
+  }
+  send(res, 200, {
+    status: delivery.ok ? 'delivered' : 'delivery_failed',
+    channel,
+    delivery_status: delivery.status,
+  });
+  return true;
+}
+
 async function handleNotFound(_req, res) {
   send(res, 404, { error: 'not found' });
   return true;
@@ -367,12 +467,18 @@ const ROUTES = [
   ['POST', '/api/chat', handlePostChat],
 ];
 
+// V36: prefix-matched routes. Each entry: [method, prefix, handler].
+// The handler receives (req, res, url, capturedPath) where
+// capturedPath is url.pathname.slice(prefix.length). Empty string
+// when the URL ends at the prefix.
+const PREFIX_ROUTES = [['POST', '/api/webhook/', handlePostWebhook]];
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || HOST}`);
   const method = req.method;
 
   // V33: gate everything except /api/health on the bearer token.
-  // We do this BEFORE the ROUTES table so an unauthenticated request
+  // We do this BEFORE the route table so an unauthenticated request
   // never reaches a handler (even a 404).
   if (!requireAuth(req, res, url)) {
     return;
@@ -388,6 +494,19 @@ const server = createServer(async (req, res) => {
     await handler(req, res);
     return;
   }
+
+  for (const [m, prefix, handler] of PREFIX_ROUTES) {
+    if (method !== m) {
+      continue;
+    }
+    if (!url.pathname.startsWith(prefix)) {
+      continue;
+    }
+    const captured = url.pathname.slice(prefix.length);
+    await handler(req, res, url, captured);
+    return;
+  }
+
   await handleNotFound(req, res);
 });
 
@@ -404,6 +523,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.stdout.write(
       '  POST /api/chat      -> text/event-stream    (Accept: text/event-stream, V31)\n',
     );
+    process.stdout.write('  POST /api/webhook/<channel> -> channel webhook (V36)\n');
     if (AUTH_TOKEN) {
       process.stdout.write('Auth: WEB_AUTH_TOKEN is set; non-health routes require it.\n');
     } else {
