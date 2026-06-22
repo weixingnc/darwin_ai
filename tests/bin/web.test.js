@@ -186,3 +186,210 @@ describe('darwin web (V29-actual)', () => {
     }
   });
 });
+
+describe('darwin web stop / status (V30)', () => {
+  // Use a unique fake pidfile path during these tests so we don't trample
+  // on a real running server. We do this by setting the HOME env var to
+  // a tmpdir; web-pidfile.js uses homedir() + .darwin/web.pid.
+  test('darwin web status (no pidfile) exits 0 and reports "not running"', () => {
+    const r = runSync(['web', 'status'], { HOME: '/tmp/darwin-empty-home-' + Date.now() });
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.ok(
+      r.stdout.includes('no server is running'),
+      `stdout should mention 'no server is running', was: ${r.stdout}`,
+    );
+  });
+
+  test('darwin web stop (no pidfile) exits 0 and reports "not running"', () => {
+    const r = runSync(['web', 'stop'], { HOME: '/tmp/darwin-empty-home-' + Date.now() });
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.ok(
+      r.stdout.includes('no server is running'),
+      `stdout should mention 'no server is running', was: ${r.stdout}`,
+    );
+  });
+
+  test('darwin web status --help exits 0 and shows subcommand help', () => {
+    const r = runSync(['web', 'status', '--help']);
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.ok(r.stdout.includes('darwin web status'), `stdout should mention subcommand name`);
+  });
+
+  test('darwin web stop --help exits 0 and shows subcommand help', () => {
+    const r = runSync(['web', 'stop', '--help']);
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.ok(r.stdout.includes('darwin web stop'), `stdout should mention subcommand name`);
+  });
+
+  test('darwin web --help now mentions stop and status (V30)', () => {
+    const r = runSync(['web', '--help']);
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.ok(r.stdout.includes('darwin web stop'), `--help should mention stop`);
+    assert.ok(r.stdout.includes('darwin web status'), `--help should mention status`);
+    assert.ok(r.stdout.includes('--detach'), `--help should mention --detach flag`);
+  });
+
+  test('darwin web --detach starts a background server that /api/health responds to', async () => {
+    const home = '/tmp/darwin-detach-test-' + Date.now();
+    process.env.HOME_FOR_TEST = home; // informational; we set HOME via runSync
+    const child = spawnLongLived(['web', '--detach', '--port', '18761', '--host', '127.0.0.1'], {
+      HOME: home,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (c) => {
+      stdout += c.toString('utf8');
+    });
+    child.stderr.on('data', (c) => {
+      stderr += c.toString('utf8');
+    });
+
+    try {
+      // Parent should exit 0 quickly (within ~3s) after writing the pidfile.
+      const exitCode = await new Promise((res, rej) => {
+        const t = setTimeout(
+          () => rej(new Error('darwin web --detach parent did not exit in 3s')),
+          3000,
+        );
+        child.on('exit', (code) => {
+          clearTimeout(t);
+          res(code);
+        });
+      });
+      assert.equal(
+        exitCode,
+        0,
+        `--detach parent should exit 0, got ${exitCode}
+stdout: ${stdout}
+stderr: ${stderr}`,
+      );
+      assert.ok(stdout.includes('detached'), `stdout should mention 'detached', was: ${stdout}`);
+
+      // Wait a bit for the actual web server to listen.
+      await new Promise((r2) => setTimeout(r2, 500));
+      await waitForHealth(18761, '127.0.0.1', 5000);
+      assert.ok(true, 'detached server is healthy on 127.0.0.1:18761');
+    } finally {
+      // Clean up: stop the detached server and remove the pidfile.
+      try {
+        spawnSync('node', [DARWIN_BIN, 'web', 'stop'], { env: { ...process.env, HOME: home } });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+
+  test('darwin web status (after --detach) reports the running pid', async () => {
+    const home = '/tmp/darwin-status-test-' + Date.now();
+    const child = spawnLongLived(['web', '--detach', '--port', '18762', '--host', '127.0.0.1'], {
+      HOME: home,
+    });
+    child.stdout.on('data', () => {});
+    child.stderr.on('data', () => {});
+
+    try {
+      await new Promise((res) => {
+        const t = setTimeout(() => res(), 3000);
+        child.on('exit', () => {
+          clearTimeout(t);
+          res();
+        });
+      });
+      // Wait for server to listen.
+      await waitForHealth(18762, '127.0.0.1', 5000);
+
+      // Now invoke `darwin web status` against the same HOME.
+      const r = runSync(['web', 'status'], { HOME: home });
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.ok(r.stdout.includes('running'), `stdout should say 'running', was: ${r.stdout}`);
+      assert.ok(r.stdout.includes('18762'), `stdout should mention port 18762, was: ${r.stdout}`);
+      assert.ok(r.stdout.includes('uptime'), `stdout should mention 'uptime', was: ${r.stdout}`);
+    } finally {
+      try {
+        spawnSync('node', [DARWIN_BIN, 'web', 'stop'], { env: { ...process.env, HOME: home } });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+
+  test('darwin web stop (after --detach) actually kills the server', async () => {
+    const home = '/tmp/darwin-stop-test-' + Date.now();
+    const child = spawnLongLived(['web', '--detach', '--port', '18763', '--host', '127.0.0.1'], {
+      HOME: home,
+    });
+    child.stdout.on('data', () => {});
+    child.stderr.on('data', () => {});
+
+    try {
+      await new Promise((res) => {
+        const t = setTimeout(() => res(), 3000);
+        child.on('exit', () => {
+          clearTimeout(t);
+          res();
+        });
+      });
+      await waitForHealth(18763, '127.0.0.1', 5000);
+
+      // Now stop it via the CLI.
+      const r = runSync(['web', 'stop'], { HOME: home });
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.ok(r.stdout.includes('stopped'), `stdout should say 'stopped', was: ${r.stdout}`);
+
+      // Server should be unreachable now.
+      await new Promise((res2) => setTimeout(res2, 500));
+      const probe = spawnSync(
+        'node',
+        [
+          '-e',
+          `require('http').get('http://127.0.0.1:18763/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(2))`,
+        ],
+        { timeout: 3000 },
+      );
+      assert.notEqual(probe.status, 0, 'server should not respond after stop');
+    } finally {
+      // Idempotent cleanup.
+      try {
+        spawnSync('node', [DARWIN_BIN, 'web', 'stop'], { env: { ...process.env, HOME: home } });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+
+  test('darwin web --detach (second call) exits 1 with "already running"', async () => {
+    const home = '/tmp/darwin-dup-test-' + Date.now();
+    const child1 = spawnLongLived(['web', '--detach', '--port', '18764', '--host', '127.0.0.1'], {
+      HOME: home,
+    });
+    child1.stdout.on('data', () => {});
+    child1.stderr.on('data', () => {});
+
+    try {
+      await new Promise((res) => {
+        const t = setTimeout(() => res(), 3000);
+        child1.on('exit', () => {
+          clearTimeout(t);
+          res();
+        });
+      });
+      await waitForHealth(18764, '127.0.0.1', 5000);
+
+      // Second call should fail.
+      const r = runSync(['web', '--detach', '--port', '18764', '--host', '127.0.0.1'], {
+        HOME: home,
+      });
+      assert.equal(r.status, 1, `expected exit 1, got ${r.status}. stderr: ${r.stderr}`);
+      assert.ok(
+        r.stderr.includes('already running'),
+        `stderr should mention 'already running', was: ${r.stderr}`,
+      );
+    } finally {
+      try {
+        spawnSync('node', [DARWIN_BIN, 'web', 'stop'], { env: { ...process.env, HOME: home } });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+});

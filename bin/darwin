@@ -23,6 +23,8 @@
  *   darwin memory show <key>          read a memory key
  *   darwin memory set <key> <val>     write a memory key (string MVP)
  *   darwin web [--port N] [--host H]  start the local web UI (V29-actual)
+ *   darwin web stop                   stop the background server (V30)
+ *   darwin web status                 show the background server status (V30)
  *   darwin help                       this help
  */
 
@@ -34,7 +36,7 @@ import { configAdd, configShow } from './lib/config.js';
 import { repl } from './lib/repl.js';
 import { pluginAdd, pluginList } from './lib/plugin.js';
 import { memoryShow, memorySet } from './lib/memory.js';
-import { webStart } from './lib/web.js';
+import { webStart, webStop, webStatus } from './lib/web.js';
 import { selfEvolutionDispatch } from './lib/self-evolution.js';
 
 // Resolve the package.json relative to this file (bin/darwin).
@@ -75,6 +77,8 @@ Usage:
   darwin memory show <key>          read a memory key
   darwin memory set <key> <val>     write a memory key (string only MVP)
   darwin web [--port N] [--host H]  start the local web UI (V29-actual)
+  darwin web stop                   stop the background server (V30)
+  darwin web status                 show the background server status (V30)
   darwin self-evolution <sub>       self-evolution 7 api (diagnose/propose/apply/verify/rollback/audit/learn)
   darwin help                       this help
 
@@ -97,6 +101,10 @@ const SUBCOMMANDS = {
     show: ({ rest }) => memoryShow(rest[0]),
     set: ({ rest }) => memorySet(rest[0], rest.slice(1).join(' ')),
   },
+  web: {
+    stop: ({ rest }) => webStop(rest),
+    status: ({ rest }) => webStatus(rest),
+  },
 };
 
 // Top-level command dispatch. Version flags live outside the table
@@ -107,6 +115,8 @@ const COMMANDS = {
   chat: ({ argv }) => chat(argv.slice(1).join(' ').trim()),
   repl: () => repl(),
   'self-evolution': ({ sub, rest }) => selfEvolutionDispatch(sub, rest),
+  // `web stop` / `web status` are handled in SUBCOMMANDS above
+  // (so `darwin help` and the unknown-flag path can discover them).
   web: ({ argv }) => webStart(argv.slice(1)),
 };
 
