@@ -29,6 +29,13 @@
  * that for the V30 use case (one user, one server); a future
  * V31+ could add a `.lock` companion file if multi-launch races
  * become a real problem.
+ *
+ * V33: same directory also holds the auth token file
+ *   ~/.darwin/web.token
+ * containing a random 32-byte hex string. The web server reads this
+ * at startup; the CLI generates it on first launch. The token is
+ * stable across `darwin web stop` / `darwin web --detach` so users
+ * do not have to re-enter it after restarts.
  */
 
 import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
@@ -38,6 +45,7 @@ import { kill } from 'node:process';
 
 const USER_DIR = join(homedir(), '.darwin');
 const PIDFILE = join(USER_DIR, 'web.pid');
+const TOKENFILE = join(USER_DIR, 'web.token');
 
 function ensureUserDir() {
   try {
@@ -184,4 +192,50 @@ export function describeServer() {
     return { state: 'running', ...info };
   }
   return { state: 'stale', ...info };
+}
+
+// --- V33: web auth token ----------------------------------------
+
+export function getTokenPath() {
+  return TOKENFILE;
+}
+
+export function readToken() {
+  if (!existsSync(TOKENFILE)) {
+    return null;
+  }
+  try {
+    const raw = readFileSync(TOKENFILE, 'utf8').trim();
+    return raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeToken(token) {
+  ensureUserDir();
+  writeFileSync(TOKENFILE, String(token) + '\n', { mode: 0o600 });
+}
+
+export function clearToken() {
+  try {
+    if (existsSync(TOKENFILE)) {
+      unlinkSync(TOKENFILE);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+// Display a token safely: show the first 8 chars + ellipsis. Used by
+// `darwin web status` so the user can copy the full token from
+// `cat ~/.darwin/web.token` without us printing the secret in plaintext.
+export function maskToken(token) {
+  if (!token || typeof token !== 'string') {
+    return '(none)';
+  }
+  if (token.length <= 8) {
+    return token + '...';
+  }
+  return token.slice(0, 8) + '...';
 }

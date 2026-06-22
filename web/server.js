@@ -23,10 +23,23 @@
  *                          to `node bin/darwin chat --stream` and
  *                          translate its line protocol to SSE frames)
  *
+ * V33: all non-health endpoints require a bearer token. The token
+ * comes from one of:
+ *   - Authorization: Bearer <token>
+ *   - X-Darwin-Token: <token>  (fallback for clients that can't set
+ *     the Authorization header, e.g. browser EventSource — though
+ *     our web UI uses fetch() so this is rarely needed)
+ *   - ?token=<token>  (query string, for one-shot links)
+ * The token is read once at startup from process.env.WEB_AUTH_TOKEN
+ * (set by `darwin web` from ~/.darwin/web.token). If the env var is
+ * absent, auth is disabled (V28 compat for direct `node web/server.js`
+ * users who didn't go through the CLI).
+ *
  * Env:
- *   PORT    default 8080
- *   HOST    default 127.0.0.1 (localhost only -- V28 doesn't ship auth;
- *           a future V29/V30 would add token auth or move to a reverse proxy)
+ *   PORT             default 8080
+ *   HOST             default 127.0.0.1
+ *   WEB_AUTH_TOKEN   optional; when set, all routes except /api/health
+ *                    require the matching bearer token
  *
  * V31 SSE frame shape (one chunk per `chunk:` line from the child):
  *   data: {"type":"chunk","text":"<text>"}\n\n
@@ -61,6 +74,73 @@ try {
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
+// V33: when set, every non-/api/health route requires this token.
+// Constant-time comparison to avoid timing-side-channel leaks.
+const AUTH_TOKEN = process.env.WEB_AUTH_TOKEN || null;
+// V33: when AUTH_TOKEN is null/undefined, auth is disabled (V28 compat
+// for direct `node web/server.js` users who did not go through the CLI).
+
+// Constant-time string comparison. Returns true if both are equal.
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// V33: extract a candidate token from headers or query string.
+function extractToken(req, url) {
+  const auth = req.headers['authorization'];
+  if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
+    return auth.slice(7).trim();
+  }
+  const xTok = req.headers['x-darwin-token'];
+  if (typeof xTok === 'string' && xTok.length > 0) {
+    return xTok.trim();
+  }
+  const qTok = url.searchParams.get('token');
+  if (qTok && qTok.length > 0) {
+    return qTok;
+  }
+  return null;
+}
+
+// V33: 401 response with a clear JSON body + a WWW-Authenticate hint.
+function deny(res) {
+  setCors(res);
+  res.statusCode = 401;
+  res.setHeader('WWW-Authenticate', 'Bearer realm="darwin-web", charset="utf-8"');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(
+    JSON.stringify({
+      error: 'auth required',
+      hint: 'Set Authorization: Bearer <token>, or ?token=<token> in the URL',
+    }),
+  );
+}
+
+// V33: gate everything except /api/health.
+function requireAuth(req, res, url) {
+  if (!AUTH_TOKEN) {
+    return true; // auth disabled
+  }
+  if (url.pathname === '/api/health') {
+    return true;
+  }
+  const candidate = extractToken(req, url);
+  if (candidate && safeEqual(candidate, AUTH_TOKEN)) {
+    return true;
+  }
+  deny(res);
+  return false;
+}
 
 function readJson(req) {
   return new Promise((resolveBody, rejectBody) => {
@@ -87,7 +167,6 @@ function readJson(req) {
   });
 }
 
-// V28: synchronous chat. Returns the full reply.
 function chatOnce(message) {
   return new Promise((resolveChat, rejectChat) => {
     const child = spawn(process.execPath, [join(REPO_ROOT, 'bin', 'darwin'), 'chat', message], {
@@ -114,13 +193,6 @@ function chatOnce(message) {
   });
 }
 
-// V31: stream `node bin/darwin chat --stream "<message>"` to the HTTP
-// response as Server-Sent Events.
-//
-// Child line protocol:
-//   "chunk:<text>"  -> SSE data frame { type: "chunk", text }
-//   "done:"         -> SSE data frame { type: "done" } and closes
-//   "error:<msg>"   -> SSE data frame { type: "error", error } and closes
 function streamChat(res, message) {
   const child = spawn(
     process.execPath,
@@ -228,7 +300,7 @@ function streamChat(res, message) {
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Darwin-Token');
 }
 
 function send(res, status, body, contentType = 'application/json') {
@@ -238,8 +310,6 @@ function send(res, status, body, contentType = 'application/json') {
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
 
-// Route handlers (V31: extracted to keep createServer's complexity
-// under the 15 cap). Each returns true if it handled the request.
 async function handleOptions(_req, res) {
   setCors(res);
   res.statusCode = 204;
@@ -253,7 +323,7 @@ async function handleGetRoot(_req, res) {
 }
 
 async function handleGetHealth(_req, res) {
-  send(res, 200, { ok: true, version: VERSION });
+  send(res, 200, { ok: true, version: VERSION, auth_required: !!AUTH_TOKEN });
   return true;
 }
 
@@ -270,7 +340,6 @@ async function handlePostChat(req, res) {
     send(res, 400, { error: 'message is required' });
     return true;
   }
-  // V31: Accept: text/event-stream -> SSE; otherwise JSON (V28 compat).
   const accept = String(req.headers['accept'] || '').toLowerCase();
   if (accept.includes('text/event-stream')) {
     streamChat(res, message);
@@ -301,6 +370,14 @@ const ROUTES = [
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || HOST}`);
   const method = req.method;
+
+  // V33: gate everything except /api/health on the bearer token.
+  // We do this BEFORE the ROUTES table so an unauthenticated request
+  // never reaches a handler (even a 404).
+  if (!requireAuth(req, res, url)) {
+    return;
+  }
+
   for (const [m, path, handler] of ROUTES) {
     if (method !== m) {
       continue;
@@ -314,19 +391,24 @@ const server = createServer(async (req, res) => {
   await handleNotFound(req, res);
 });
 
-export { server, PORT, HOST };
+export { server, PORT, HOST, AUTH_TOKEN };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   server.listen(PORT, HOST, () => {
     process.stdout.write(`Darwin web UI listening on http://${HOST}:${PORT}\n`);
     process.stdout.write('  GET  /              -> chat form\n');
-    process.stdout.write('  GET  /api/health    -> { ok, version }\n');
+    process.stdout.write('  GET  /api/health    -> { ok, version, auth_required }\n');
     process.stdout.write(
       '  POST /api/chat      -> { reply }            (Accept: application/json)\n',
     );
     process.stdout.write(
       '  POST /api/chat      -> text/event-stream    (Accept: text/event-stream, V31)\n',
     );
+    if (AUTH_TOKEN) {
+      process.stdout.write('Auth: WEB_AUTH_TOKEN is set; non-health routes require it.\n');
+    } else {
+      process.stdout.write('Auth: WEB_AUTH_TOKEN not set; all routes open (V28 compat).\n');
+    }
     process.stdout.write('Press Ctrl+C to stop.\n');
   });
 }

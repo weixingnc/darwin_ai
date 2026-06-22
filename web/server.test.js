@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -254,5 +255,151 @@ describe('web/index.html (V32) — streaming chat UI', () => {
     assert.ok(html.includes('AbortController'), 'index.html should support stop/abort');
     // V32 visual
     assert.ok(html.includes('caret'), 'index.html should show a blinking caret while streaming');
+  });
+});
+
+describe('web/server (V33) — bearer-token auth', () => {
+  // V33: spawn a server with WEB_AUTH_TOKEN set. Tests verify that
+  // /api/health stays open while every other route demands the token.
+  const TOKEN = 'test-token-abc-123';
+  let baseUrl2;
+  let proc;
+  let procStdout = '';
+  let procStderr = '';
+
+  before(async () => {
+    const port = 19000 + Math.floor(Math.random() * 1000);
+    proc = spawn(process.execPath, [SERVER_PATH], {
+      env: {
+        ...process.env,
+        PORT: String(port),
+        HOST: '127.0.0.1',
+        WEB_AUTH_TOKEN: TOKEN,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    proc.stdout.on('data', (c) => {
+      procStdout += c.toString();
+    });
+    proc.stderr.on('data', (c) => {
+      procStderr += c.toString();
+    });
+    const ready = new Promise((resolveReady, rejectReady) => {
+      const t = setTimeout(
+        () =>
+          rejectReady(
+            new Error(
+              'auth-test server start timeout: stdout=' + procStdout + ' stderr=' + procStderr,
+            ),
+          ),
+        5000,
+      );
+      const i = setInterval(() => {
+        if (procStdout.includes('listening on')) {
+          clearInterval(i);
+          clearTimeout(t);
+          resolveReady();
+        }
+      }, 50);
+    });
+    await ready;
+    baseUrl2 = 'http://127.0.0.1:' + port;
+  });
+
+  after(() => {
+    if (proc && !proc.killed) {
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  function http2(method, path, opts = {}) {
+    return fetch(baseUrl2 + path, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(opts.headers || {}),
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+  }
+
+  test('GET /api/health stays open (no auth required) and reports auth_required=true', async () => {
+    const r = await http2('GET', '/api/health');
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.ok, true);
+    assert.equal(
+      j.auth_required,
+      true,
+      'health should report auth_required=true when WEB_AUTH_TOKEN is set',
+    );
+  });
+
+  test('GET / without token returns 401 with WWW-Authenticate', async () => {
+    const r = await http2('GET', '/');
+    assert.equal(r.status, 401);
+    const wwwAuth = r.headers.get('www-authenticate') || '';
+    assert.ok(
+      wwwAuth.toLowerCase().includes('bearer'),
+      'should set WWW-Authenticate: Bearer, got: ' + wwwAuth,
+    );
+    const j = await r.json();
+    assert.equal(j.error, 'auth required');
+  });
+
+  test('GET / with wrong token returns 401', async () => {
+    const r = await http2('GET', '/', { headers: { Authorization: 'Bearer wrong-token' } });
+    assert.equal(r.status, 401);
+  });
+
+  test('GET / with correct Authorization: Bearer returns 200', async () => {
+    const r = await http2('GET', '/', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    assert.equal(r.status, 200);
+    const ct = r.headers.get('content-type') || '';
+    assert.ok(ct.includes('text/html'), 'should serve HTML');
+  });
+
+  test('GET / with correct ?token=... returns 200 (one-shot link)', async () => {
+    const r = await http2('GET', '/?token=' + encodeURIComponent(TOKEN));
+    assert.equal(r.status, 200);
+  });
+
+  test('GET / with X-Darwin-Token header returns 200', async () => {
+    const r = await http2('GET', '/', { headers: { 'X-Darwin-Token': TOKEN } });
+    assert.equal(r.status, 200);
+  });
+
+  test('POST /api/chat without token returns 401', async () => {
+    const r = await http2('POST', '/api/chat', { body: { message: 'hello' } });
+    assert.equal(r.status, 401);
+  });
+
+  test('POST /api/chat with token (SSE Accept) still gets 200 from auth gate', async () => {
+    // We do not consume the SSE body here; we just verify the gate
+    // doesn't reject the request. The actual chat will fail because
+    // no provider is configured, but that's a downstream concern.
+    const r = await http2('POST', '/api/chat', {
+      body: { message: 'hello' },
+      headers: {
+        Authorization: 'Bearer ' + TOKEN,
+        Accept: 'text/event-stream',
+      },
+    });
+    assert.equal(r.status, 200, 'SSE chat should pass the auth gate');
+    // Drain the body so the child can exit.
+    try {
+      await r.text();
+    } catch {
+      /* ignore */
+    }
+  });
+
+  test('hygiene: no real api_key in web/server.js (Darwin A-4)', () => {
+    const src = readFileSync(SERVER_PATH, 'utf8');
+    assert.ok(!/sk-[a-zA-Z0-9]{20,}/.test(src), 'web/server.js must not contain real sk-... key');
   });
 });

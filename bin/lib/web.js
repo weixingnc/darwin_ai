@@ -16,6 +16,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import {
   isPidAlive,
   readPidfile,
@@ -25,6 +26,10 @@ import {
   formatUptime,
   stopServer,
   describeServer,
+  readToken,
+  writeToken,
+  getTokenPath,
+  maskToken,
 } from './web-pidfile.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -148,6 +153,18 @@ function failAndExit(msg) {
   process.exit(1);
 }
 
+// V33: ensure ~/.darwin/web.token exists and return it. Generates a
+// fresh 32-byte hex token on first launch; subsequent launches reuse
+// the existing one so users do not have to re-enter it after restarts.
+function ensureAuthToken() {
+  let token = readToken();
+  if (!token) {
+    token = randomBytes(32).toString('hex');
+    writeToken(token);
+  }
+  return token;
+}
+
 // Reject a detach launch when a live server is already recorded.
 function checkNotAlreadyRunning(_port, _host) {
   const existing = readPidfile();
@@ -201,9 +218,15 @@ export function webStart(argv = []) {
     checkNotAlreadyRunning(effectivePort, effectiveHost);
   }
 
+  // V33: ensure ~/.darwin/web.token exists and forward it to the
+  // child via env. The server reads WEB_AUTH_TOKEN at startup and
+  // rejects any request that does not present it.
+  const authToken = ensureAuthToken();
+  const childEnv = { ...env, WEB_AUTH_TOKEN: authToken };
+
   const child = spawn(process.execPath, [SERVER_JS], {
     stdio: detach ? 'ignore' : 'inherit',
-    env,
+    env: childEnv,
     detached: detach,
   });
 
@@ -220,6 +243,7 @@ export function webStart(argv = []) {
     process.stdout.write(
       `darwin web: detached (pid ${child.pid}, http://${effectiveHost}:${effectivePort})\n` +
         `  pidfile: ${getPidfilePath()}\n` +
+        `  auth:     ${getTokenPath()}\n` +
         `  stop with: darwin web stop\n`,
     );
     process.exit(0);
@@ -227,6 +251,8 @@ export function webStart(argv = []) {
   }
 
   // Foreground mode (default): forward signals and propagate exit code.
+  // V33: tell the user where the auth token lives.
+  process.stdout.write(`darwin web: auth token at ${getTokenPath()}\n`);
   const forward = (sig) => {
     if (!child.killed) {
       try {
@@ -316,5 +342,12 @@ export function webStatus(argv = []) {
   process.stdout.write('  started_at: ' + (desc.started_at || '?') + '\n');
   process.stdout.write('  uptime:     ' + uptime + '\n');
   process.stdout.write('  pidfile:    ' + getPidfilePath() + '\n');
+  process.stdout.write(
+    '  auth token: ' +
+      (readToken() ? maskToken(readToken()) : '(none)') +
+      ' (full: ' +
+      getTokenPath() +
+      ')\n',
+  );
   process.exit(0);
 }
