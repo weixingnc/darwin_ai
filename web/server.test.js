@@ -157,3 +157,82 @@ describe('web/server (V28) — zero-dep HTTP layer', () => {
     assert.match(r.headers.get('access-control-allow-origin') || '', /.*/);
   });
 });
+
+describe('web/server (V31) — Server-Sent Events for /api/chat', () => {
+  function httpSse(path, body) {
+    return fetch(baseUrl + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // Parse the SSE response body into a list of { type, ... } frames.
+  async function readSseFrames(response) {
+    const text = await response.text();
+    const frames = [];
+    for (const block of text.split('\n\n')) {
+      const line = block.trim();
+      if (!line) {
+        continue;
+      }
+      if (line.startsWith('data: ')) {
+        try {
+          frames.push(JSON.parse(line.slice('data: '.length)));
+        } catch (_) {
+          frames.push({ type: 'parse-error', raw: line });
+        }
+      }
+    }
+    return frames;
+  }
+
+  test('POST /api/chat with Accept: text/event-stream returns SSE content-type', async () => {
+    const r = await httpSse('/api/chat', { message: 'hello' });
+    assert.equal(r.status, 200, 'SSE should return 200, got ' + r.status);
+    const ct = r.headers.get('content-type') || '';
+    assert.ok(ct.includes('text/event-stream'), 'expected text/event-stream, got: ' + ct);
+  });
+
+  test('SSE without provider emits an error frame then closes', async () => {
+    // Test env has no provider configured. `darwin chat --stream`
+    // prints `error:No provider configured...` and exits 2.
+    // The web layer should forward that as an SSE error frame.
+    const r = await httpSse('/api/chat', { message: 'hello' });
+    assert.equal(r.status, 200);
+    const frames = await readSseFrames(r);
+    assert.ok(frames.length >= 1, 'expected at least 1 SSE frame, got ' + frames.length);
+    const errFrame = frames.find((f) => f.type === 'error');
+    assert.ok(errFrame, 'expected an error frame, got: ' + JSON.stringify(frames));
+    assert.ok(
+      typeof errFrame.error === 'string' && errFrame.error.length > 0,
+      'error frame should have a non-empty error string',
+    );
+  });
+
+  test('SSE with empty message returns 400 (validation before stream)', async () => {
+    const r = await httpSse('/api/chat', { message: '' });
+    assert.equal(r.status, 400, 'expected 400 for empty message, got ' + r.status);
+  });
+
+  test('JSON Accept header still works (V28 compat preserved)', async () => {
+    // Without Accept: text/event-stream, the V28 path is used:
+    // 500 with the spawn stderr (no provider in test env).
+    const r = await fetch(baseUrl + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'hello' }),
+    });
+    assert.equal(r.status, 500);
+    const ct = r.headers.get('content-type') || '';
+    assert.ok(
+      ct.includes('application/json'),
+      'JSON path should return JSON content-type, got: ' + ct,
+    );
+    const j = await r.json();
+    assert.ok(j.error, 'JSON path should return { error: ... }, got: ' + JSON.stringify(j));
+  });
+});

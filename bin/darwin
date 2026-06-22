@@ -112,7 +112,7 @@ const SUBCOMMANDS = {
 // any provider / config work.
 const COMMANDS = {
   version: () => showVersion(),
-  chat: ({ argv }) => chat(argv.slice(1).join(' ').trim()),
+  chat: ({ argv }) => chat(argv.slice(1)),
   repl: () => repl(),
   'self-evolution': ({ sub, rest }) => selfEvolutionDispatch(sub, rest),
   // `web stop` / `web status` are handled in SUBCOMMANDS above
