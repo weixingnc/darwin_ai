@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh | ba
 # Or from a local clone (dev workflow):
 git clone <darwin> ~/darwin && cd ~/darwin
 npm install && chmod +x bin/darwin
-npm test                       # 1302/1302 pass (V34 baseline)
+npm test                       # 1318/1318 pass (V38 baseline)
 ./bin/darwin --version         # verify install (V23+ adds this)
 ./bin/darwin help              # see all sub-commands
 ./bin/darwin self-evolution diagnose     # scan current capability surface
@@ -79,6 +79,27 @@ npm test                       # 1302/1302 pass (V34 baseline)
 # is auto-adopted and the query string is stripped from the URL
 # so the secret does not leak via browser history or referer.
 # A "Sign out" button in the header clears the token.
+
+# Channel webhook (V36): any HTTP-receiving platform can talk to
+# darwin with three lines of code:
+#   fetch('http://localhost:8080/api/webhook/slack', {
+#     method: 'POST',
+#     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+#     body: JSON.stringify({ message: userText, reply_url: 'https://myapp.com/reply' }),
+#   });
+# darwin runs the chat, POSTs {reply, channel, user_id, meta}
+# back to reply_url, and returns 200 to the webhook caller
+# immediately. V33 bearer token still gates the route; a
+# per-channel WEBHOOK_SECRET_<CHAN> env (when set) provides a
+# second factor for untrusted networks.
+
+# Working vendor adapters (V37, V38): copy-paste-runnable bridges
+# for Slack and Feishu, each ~300 lines, zero new dependencies.
+# See examples/slack-bridge/ and examples/feishu-bridge/. To add
+# a new vendor (Telegram, Discord, MS Teams, etc.), copy either
+# directory and change 3-4 vendor-specific things: event type,
+# content parsing, signature check, outbound API call. The
+# darwin webhook contract is unchanged.
 ```
 
 ## Examples & developer docs

@@ -6,6 +6,79 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 as of v0.2.0 (currently still v0.1.0; v1.0.0 cut deferred to V22 multi-Darwin
 federation -- planned 2026-Q4).
 
+### Added (V38, 2026-06-22)
+
+- **V38 feishu-bridge example** (`feat(examples): feishu-bridge
+adapter proving v37 pattern is reusable (v38)`): a 1:1 mirror
+  of the V37 slack-bridge with three vendor-specific changes:
+  Feishu event type `im.message.receive_v1` (vs Slack's
+  `message`); Feishu message text parsed from
+  `event.message.content` (JSON-encoded `'{"text":"..."}'` blob,
+  vs Slack's flat `event.text`); Feishu signature check using
+  HMAC-SHA256 of `X-Lark-Request-Timestamp + FEISHU_ENCRYPT_KEY`
+  compared against `X-Lark-Signature` header in constant time.
+  3 files: `examples/feishu-bridge/bridge.mjs` (358L),
+  `examples/feishu-bridge/bridge.test.mjs` (220L, 5 integration
+  tests including a 401-on-bad-signature test), and
+  `examples/feishu-bridge/README.md` (60L, with a V37 -> V38
+  delta table). V37 + V38 together prove the pattern: adding a
+  third vendor (Telegram, Discord, MS Teams, etc.) is +60-100
+  lines of vendor-specific code, not 5x. The outbound path
+  (darwin reply -> Feishu messages API with
+  tenant_access_token) is left as a TODO and documented inline,
+  mirroring V37's `chat.postMessage` mock. 1318/1318 npm test
+  pass (was 1313, +5 from this commit).
+
+### Added (V37, 2026-06-22)
+
+- **V37 slack-bridge example** (`feat(examples): slack-bridge
+example proving v36 mechanism in real flow (v37)`): a
+  standalone Node script that wires Slack's Events API to the
+  darwin V36 webhook layer. Two HTTP routes
+  (`/slack/events` for the Slack handshake, `/slack/reply`
+  for darwin's async delivery). 4 files: `examples/slack-bridge/
+bridge.mjs` (291L), `examples/slack-bridge/bridge.test.mjs`
+  (223L, 5 integration tests), `examples/slack-bridge/README.md`
+  (82L, copy-paste setup instructions), and a 1-line
+  `package.json` change to add `examples/**/*.test.mjs` to the
+  npm test glob so the bridge tests run in CI. The test
+  pattern was refined mid-commit: a `waitFor(stream, marker)`
+  helper that polled child stdout was replaced with
+  `waitForPort(port)` because Node's `--test` runner captures
+  child stdio by default (`--test-isolation=process`), so
+  `'data'` events on a spawned child's stdout never fire inside
+  the test process. Polling the TCP port bypasses stdio
+  entirely; the gotcha is documented inline in bridge.test.mjs
+  so future test authors do not re-discover it. 1313/1313 npm
+  test pass (was 1308, +5 from this commit).
+
+### Added (V36, 2026-06-22)
+
+- **V36 channel webhook entry** (`feat(web): channel webhook
+entry at /api/webhook/<channel> (v36)`): the smallest step
+  from "web UI only" (V28-V35) toward "multi-channel AI
+  gateway" (the OpenClaw shape). Inbound: `POST
+/api/webhook/<channel>` with a Darwin envelope
+  `{message, reply_url, user_id?, meta?}`. Outbound: darwin
+  POSTs `{reply, channel, user_id?, meta?}` to reply*url.
+  Three layers of security: V33 bearer token still gates the
+  route; per-channel `WEBHOOK_CHANNELS` allowlist (env,
+  comma-separated; empty = any); per-channel
+  `WEBHOOK_SECRET*<UPPER>`env when set, matched against`X-Darwin-Channel-Secret`header (no-secret = open). Async
+delivery: the webhook caller gets 200 immediately; darwin
+POSTs the reply in the background. A future channel adapter
+(Slack, Telegram, Feishu, custom) only needs to translate
+vendor payload <-> Darwin envelope; the darwin webhook
+contract is unchanged. 3 files:`bin/lib/webhook.js`(new,
+141L),`web/server.js`(mod, +122L net, adds
+handlePostWebhook + authorizeChannel + readWebhookBody
+helpers + a sibling PREFIX_ROUTES dispatch table for
+prefix-matched routes),`web/server.test.js` (mod, +175L
+  net, 6 integration tests). 1308/1308 npm test pass (was
+  1293, +6 from this commit; the V35 doc-sync bumped the
+  claimed number to 1302, so V36's +6 is the real post-V35
+  total).
+
 ### Added (V34, 2026-06-22)
 
 - **V34 client-side auth flow** (`feat(web): client-side auth flow
