@@ -11,10 +11,10 @@ breaks. The whole loop is auditable, revertible, and human-approved by default.
 
 ```bash
 # One-line install (Linux / macOS)
-curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/weixingnc/darwin_ai/main/install.sh | bash
 
 # One-line install (Windows PowerShell)
-# iwr -useb https://raw.githubusercontent.com/weixing/darwin/main/install.ps1 | iex
+# iwr -useb https://raw.githubusercontent.com/weixingnc/darwin_ai/main/install.ps1 | iex
 
 # Or from a local clone (dev workflow):
 git clone <darwin> ~/darwin && cd ~/darwin
@@ -31,8 +31,8 @@ npm test                       # 1320/1320 pass (V41 baseline)
 
 # From a pre-built tarball (V25+, no git required):
 # Linux/macOS:
-#   curl -fsSL https://raw.githubusercontent.com/weixing/darwin/main/install.sh \
-#     | bash -s -- --from-tarball https://github.com/weixing/darwin/releases/download/v0.1.0/darwin-v0.1.0.tar.gz
+#   curl -fsSL https://raw.githubusercontent.com/weixingnc/darwin_ai/main/install.sh \
+#     | bash -s -- --from-tarball https://github.com/weixingnc/darwin_ai/releases/download/v0.1.0/darwin-v0.1.0.tar.gz
 # Windows (V25.1+):
 #   iwr -useb .../install.ps1 | iex; Install-Darwin -FromTarball <url>
 

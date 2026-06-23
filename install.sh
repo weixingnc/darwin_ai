@@ -17,7 +17,7 @@
 #   bash install.sh --from-tarball-installed
 #
 # Environment overrides:
-#   DARWIN_REPO      git URL to clone (default: https://github.com/weixing/darwin.git)
+#   DARWIN_REPO      git URL to clone (default: https://github.com/weixingnc/darwin_ai.git)
 #   DARWIN_BRANCH    git branch/tag to checkout (default: main)
 #   DARWIN_HOME      install directory (default: $HOME/.darwin)
 #   DARWIN_BIN       bin directory for the `darwin` symlink (default: $HOME/.local/bin)
@@ -36,7 +36,7 @@
 set -euo pipefail
 
 # ---------- args ----------
-REPO="${DARWIN_REPO:-https://github.com/weixing/darwin.git}"
+REPO="${DARWIN_REPO:-https://github.com/weixingnc/darwin_ai.git}"
 BRANCH="${DARWIN_BRANCH:-main}"
 HOME_DIR="${DARWIN_HOME:-$HOME/.darwin}"
 BIN_DIR="${DARWIN_BIN:-$HOME/.local/bin}"

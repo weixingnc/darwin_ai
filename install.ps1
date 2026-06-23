@@ -58,7 +58,7 @@ if ($Help) {
   exit 0
 }
 
-if (-not $Repo)    { $Repo = 'https://github.com/weixing/darwin.git' }
+if (-not $Repo)    { $Repo = 'https://github.com/weixingnc/darwin_ai.git' }
 if (-not $Branch)  { $Branch = 'main' }
 if (-not $Home)    { $Home = Join-Path $env:USERPROFILE '.darwin' }
 if (-not $Bin)     { $Bin  = Join-Path $env:USERPROFILE '.local\bin' }
