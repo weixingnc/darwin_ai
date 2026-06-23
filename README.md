@@ -1,5 +1,7 @@
 # Darwin
 
+[![CI](https://github.com/weixingnc/darwin_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/weixingnc/darwin_ai/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/weixingnc/darwin_ai?include_prereleases&sort=semver)](https://github.com/weixingnc/darwin_ai/releases) [![License: MIT](https://img.shields.io/github/license/weixingnc/darwin_ai)](https://github.com/weixingnc/darwin_ai/blob/main/LICENSE) [![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)](https://nodejs.org) [![Stars](https://img.shields.io/github/stars/weixingnc/darwin_ai?style=social)](https://github.com/weixingnc/darwin_ai/stargazers)
+
 > **A self-evolving digital life.** v0.1.0 skeleton; flesh grown by Darwin itself.
 
 ## TL;DR
