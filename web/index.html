@@ -161,6 +161,10 @@
       position: fixed; inset: 0; background: rgba(15, 23, 42, 0.92);
       display: flex; align-items: center; justify-content: center; z-index: 10;
     }
+    /* V44: the [hidden] attribute must win over display:flex. Both have
+       specificity 0,1,0; this rule is declared later so it wins.
+       Without it the Sign-in dialog never actually closes. */
+    .login-wrap[hidden] { display: none; }
     .login-card {
       background: var(--panel); padding: 1.5rem 2rem; border-radius: 0.75rem;
       max-width: 480px; width: 100%; border: 1px solid var(--border);
@@ -861,9 +865,17 @@
       }
       renderConversationList();
     }
+    // V44: boot() first so the auth flow can complete even if
+    // storage.js failed to load (e.g. browser cache, network
+    // blip). restoreSession() touches the conversation list +
+    // prefs helpers that live in storage.js; if it throws, the
+    // inline script would otherwise halt before any of the
+    // addEventListener() calls below run, leaving the login
+    // form dead. boot() handles the API surface independently
+    // of storage.js.
     loadVendorCatalog();
     loadActiveProvider();
-    restoreSession();
+    try { restoreSession(); } catch (e) { console.warn("V44: restoreSession failed (storage.js may not have loaded):", e); }
     boot();
   </script>
 </body>

@@ -55,7 +55,7 @@
 
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import {
   isChannelAllowed,
   verifyChannelSecret,
@@ -133,14 +133,37 @@ function deny(res) {
   );
 }
 
-// V33: gate everything except /api/health.
+// V33: gate API routes behind bearer auth. Static assets
+// (HTML, JS, CSS, images) and /api/health are open so the web UI
+// itself can boot before the user has logged in. The HTML
+// includes the login form + boot() flow that prompts for a
+// token; the JS then attaches the Authorization header on
+// subsequent /api/* calls.
 function requireAuth(req, res, url) {
   if (!AUTH_TOKEN) {
     return true; // auth disabled
   }
+  // V44: open allow-list -- paths that are always reachable.
   if (url.pathname === '/api/health') {
     return true;
   }
+  // Static assets referenced by index.html (storage.js, favicon,
+  // future CSS) are served without auth. Anything that ends in a
+  // common web asset extension is treated as static.
+  if (
+    url.pathname === '/' ||
+    url.pathname === '/index.html' ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.svg') ||
+    url.pathname.endsWith('.png') ||
+    url.pathname.endsWith('.ico') ||
+    url.pathname.endsWith('.woff2') ||
+    url.pathname.endsWith('.html')
+  ) {
+    return true;
+  }
+  // Everything else (the /api/* surface) needs a valid bearer.
   const candidate = extractToken(req, url);
   if (candidate && safeEqual(candidate, AUTH_TOKEN)) {
     return true;
@@ -334,6 +357,56 @@ async function handleGetHealth(_req, res) {
   return true;
 }
 
+// V44: serve a static file from web/ by relative path. The auth
+// allow-list (V44 requireAuth) lets the request reach here
+// without a token. We intentionally only serve files that are
+// already checked into the repo; the path is hardcoded per route
+// to avoid any user-controlled path traversal.
+const STATIC_TYPES = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain',
+};
+function handleGetStatic(_req, res, _url, relPath) {
+  if (!relPath) {
+    send(res, 400, { error: 'bad path' });
+    return true;
+  }
+  if (relPath.includes('..') || relPath.startsWith('/')) {
+    send(res, 400, { error: 'bad path' });
+    return true;
+  }
+  const filePath = join(__dirname, relPath);
+  if (!filePath.startsWith(__dirname + '/') && filePath !== __dirname) {
+    send(res, 400, { error: 'bad path' });
+    return true;
+  }
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    send(res, 404, { error: 'not found' });
+    return true;
+  }
+  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+  const ct = STATIC_TYPES[ext] || 'application/octet-stream';
+  try {
+    const body = readFileSync(filePath);
+    setCors(res);
+    res.statusCode = 200;
+    res.setHeader('Content-Type', ct + '; charset=utf-8');
+    res.setHeader('Content-Length', body.length);
+    res.end(body);
+  } catch (e) {
+    send(res, 500, { error: e.message });
+  }
+  return true;
+}
+
 async function handlePostChat(req, res) {
   let body;
   try {
@@ -464,7 +537,15 @@ const ROUTES = [
   ['OPTIONS', null, handleOptions],
   ['GET', '/', handleGetRoot],
   ['GET', '/index.html', handleGetRoot],
+  // V44: explicit routes for static assets the HTML loads at
+  // well-known paths (./storage.js and ./favicon.ico). The
+  // same handler is reachable via /static/<path> below.
+  ['GET', '/storage.js', (req, res) => handleGetStatic(req, res, null, 'storage.js')],
+  ['GET', '/favicon.ico', (req, res) => handleGetStatic(req, res, null, 'favicon.ico')],
   ['GET', '/api/health', handleGetHealth],
+  // V44: prefix route for static files in web/ (used by
+  // future CSS or image assets referenced from HTML).
+  ['GET', '/static/', handleStaticRoute],
   ['POST', '/api/chat', handlePostChat],
   ['GET', '/api/config/schema', handleGetConfigSchema],
   ['GET', '/api/config/providers', handleListConfigProviders],
@@ -491,6 +572,10 @@ const PREFIX_ROUTES = [
 // V43: thin wrappers that delegate to ConfigApi.dispatchConfigRoute.
 // The prefix-matched handler receives (req, res, url, captured) where
 // captured is everything after the prefix (e.g. "openai/test").
+function handleStaticRoute(req, res, _url, captured) {
+  return handleGetStatic(req, res, _url, captured);
+}
+
 function handleConfigProviderRoute(req, res, _url, captured) {
   return ConfigApi.dispatchConfigRoute(req.method, '/' + captured, req, res);
 }

@@ -16,7 +16,8 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,6 +26,7 @@ const REPO_ROOT = join(__dirname, '..');
 
 let baseUrl;
 let serverProcess;
+let isolatedHome;
 let stdoutBuf = '';
 let stderrBuf = '';
 
@@ -41,8 +43,12 @@ before(async () => {
   // Cross-platform: we just use a high random port and hope. If it
   // collides, the test fails fast and re-running fixes it.
   const port = 18000 + Math.floor(Math.random() * 1000);
+  // V28 tests assume no provider configured so they can assert on
+  // the 500 path. Point HOME at a fresh tmp dir so the spawned
+  // server cannot see the developer real ~/.darwin.
+  isolatedHome = mkdtempSync(join(tmpdir(), 'darwin-v28-'));
   serverProcess = spawn(process.execPath, [SERVER_PATH], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1' },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', HOME: isolatedHome },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   serverProcess.stdout.on('data', (c) => {
@@ -77,10 +83,16 @@ before(async () => {
 after(async () => {
   if (serverProcess && !serverProcess.killed) {
     serverProcess.kill('SIGTERM');
-    // Give it a moment to exit cleanly.
     await new Promise((r) => setTimeout(r, 200));
     if (!serverProcess.killed) {
       serverProcess.kill('SIGKILL');
+    }
+  }
+  if (isolatedHome) {
+    try {
+      rmSync(isolatedHome, { recursive: true, force: true });
+    } catch {
+      /* ignore */
     }
   }
 });
@@ -357,8 +369,11 @@ describe('web/server (V33) — bearer-token auth', () => {
     );
   });
 
-  test('GET / without token returns 401 with WWW-Authenticate', async () => {
-    const r = await http2('GET', '/');
+  test('GET /api/chat without token returns 401 with WWW-Authenticate', async () => {
+    // V44: GET / now serves the HTML without auth (so the login
+    // form can boot). The 401 path is exercised against the API
+    // surface instead. The same WWW-Authenticate contract holds.
+    const r = await http2('GET', '/api/chat');
     assert.equal(r.status, 401);
     const wwwAuth = r.headers.get('www-authenticate') || '';
     assert.ok(
@@ -369,9 +384,43 @@ describe('web/server (V33) — bearer-token auth', () => {
     assert.equal(j.error, 'auth required');
   });
 
-  test('GET / with wrong token returns 401', async () => {
-    const r = await http2('GET', '/', { headers: { Authorization: 'Bearer wrong-token' } });
+  test('GET /api/chat with wrong token returns 401', async () => {
+    const r = await http2('GET', '/api/chat', { headers: { Authorization: 'Bearer wrong-token' } });
     assert.equal(r.status, 401);
+  });
+
+  test('V44: GET / without token returns 200 (HTML is open)', async () => {
+    // The login form lives inside the HTML; the HTML must be
+    // reachable without a token so the user can paste one in.
+    const r = await http2('GET', '/');
+    assert.equal(r.status, 200);
+    const ct = r.headers.get('content-type') || '';
+    assert.ok(ct.includes('text/html'), 'should serve HTML, got: ' + ct);
+  });
+
+  test('V44: GET /index.html without token returns 200', async () => {
+    const r = await http2('GET', '/index.html');
+    assert.equal(r.status, 200);
+  });
+
+  test('V44: GET /storage.js without token returns 200 (static asset allow-list)', async () => {
+    // The web UI loads web/storage.js as a <script src>. The static
+    // allow-list (V44) serves .js files without auth so the page
+    // can actually boot.
+    const r = await http2('GET', '/storage.js');
+    assert.equal(r.status, 200);
+    const body = await r.text();
+    assert.ok(
+      body.includes('STORAGE_KEY_CONVS'),
+      'storage.js should be served (contains STORAGE_KEY_CONVS marker)',
+    );
+  });
+
+  test('V44: GET /nonexistent.js without token returns 404 (not 401)', async () => {
+    // Static allow-list says .js is open; missing files are still
+    // 404, not 401.
+    const r = await http2('GET', '/nonexistent.js');
+    assert.equal(r.status, 404);
   });
 
   test('GET / with correct Authorization: Bearer returns 200', async () => {

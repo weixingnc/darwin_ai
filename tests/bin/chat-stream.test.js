@@ -16,7 +16,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -25,11 +27,24 @@ const REPO_ROOT = join(__dirname, '..', '..');
 const DARWIN_BIN = join(REPO_ROOT, 'bin', 'darwin');
 
 function run(args, opts = {}) {
-  return spawnSync('node', [DARWIN_BIN, ...args], {
+  // Isolate HOME so ConfigResolver cannot see the developer real
+  // ~/.darwin (which may have a real provider configured on this box).
+  const isolatedHome = mkdtempSync(joinPath(tmpdir(), 'darwin-chat-test-'));
+  const r = spawnSync('node', [DARWIN_BIN, ...args], {
     encoding: 'utf8',
     timeout: 15000,
-    env: { ...process.env, ...(opts.env || {}) },
+    env: {
+      ...process.env,
+      ...(opts.env || {}),
+      HOME: isolatedHome,
+    },
   });
+  try {
+    rmSync(isolatedHome, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+  return r;
 }
 
 describe('darwin chat --stream (V31)', () => {
