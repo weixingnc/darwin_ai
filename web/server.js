@@ -64,6 +64,7 @@ import {
 } from '../bin/lib/webhook.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { ConfigApi } from './config-api.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -465,13 +466,54 @@ const ROUTES = [
   ['GET', '/index.html', handleGetRoot],
   ['GET', '/api/health', handleGetHealth],
   ['POST', '/api/chat', handlePostChat],
+  ['GET', '/api/config/schema', handleGetConfigSchema],
+  ['GET', '/api/config/providers', handleListConfigProviders],
+  ['POST', '/api/config/providers', handleAddConfigProvider],
+  ['GET', '/api/config/active', handleGetConfigActive],
+  ['PUT', '/api/config/active', handleSetConfigActive],
 ];
 
 // V36: prefix-matched routes. Each entry: [method, prefix, handler].
 // The handler receives (req, res, url, capturedPath) where
 // capturedPath is url.pathname.slice(prefix.length). Empty string
 // when the URL ends at the prefix.
-const PREFIX_ROUTES = [['POST', '/api/webhook/', handlePostWebhook]];
+const PREFIX_ROUTES = [
+  ['POST', '/api/webhook/', handlePostWebhook],
+  // V43: /api/config/providers/* -- one prefix covers GET/PUT/DELETE on
+  // /<id> and POST on /<id>/test. The handler is ConfigApi.dispatch
+  // which inspects method + tail.
+  ['GET', '/api/config/providers/', handleConfigProviderRoute],
+  ['PUT', '/api/config/providers/', handleConfigProviderRoute],
+  ['DELETE', '/api/config/providers/', handleConfigProviderRoute],
+  ['POST', '/api/config/providers/', handleConfigProviderRoute],
+];
+
+// V43: thin wrappers that delegate to ConfigApi.dispatchConfigRoute.
+// The prefix-matched handler receives (req, res, url, captured) where
+// captured is everything after the prefix (e.g. "openai/test").
+function handleConfigProviderRoute(req, res, _url, captured) {
+  return ConfigApi.dispatchConfigRoute(req.method, '/' + captured, req, res);
+}
+
+function handleGetConfigSchema(req, res) {
+  return ConfigApi.dispatchConfigRoute('GET', '/schema', req, res);
+}
+
+function handleListConfigProviders(req, res) {
+  return ConfigApi.dispatchConfigRoute('GET', '/providers', req, res);
+}
+
+function handleAddConfigProvider(req, res) {
+  return ConfigApi.dispatchConfigRoute('POST', '/providers', req, res);
+}
+
+function handleGetConfigActive(req, res) {
+  return ConfigApi.dispatchConfigRoute('GET', '/active', req, res);
+}
+
+function handleSetConfigActive(req, res) {
+  return ConfigApi.dispatchConfigRoute('PUT', '/active', req, res);
+}
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || HOST}`);
@@ -510,7 +552,7 @@ const server = createServer(async (req, res) => {
   await handleNotFound(req, res);
 });
 
-export { server, PORT, HOST, AUTH_TOKEN };
+export { server, PORT, HOST, AUTH_TOKEN, ConfigApi };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   server.listen(PORT, HOST, () => {
@@ -524,6 +566,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       '  POST /api/chat      -> text/event-stream    (Accept: text/event-stream, V31)\n',
     );
     process.stdout.write('  POST /api/webhook/<channel> -> channel webhook (V36)\n');
+    process.stdout.write('  GET  /api/config/schema      -> vendor catalog (V43)\n');
+    process.stdout.write('  GET  /api/config/providers   -> list providers (V43)\n');
+    process.stdout.write('  POST /api/config/providers   -> add/overwrite (V43)\n');
+    process.stdout.write('  *    /api/config/providers/<id>     [GET PUT DELETE] (V43)\n');
+    process.stdout.write('  POST /api/config/providers/<id>/test -> test connection (V43)\n');
+    process.stdout.write('  GET  /api/config/active      -> active provider/model (V43)\n');
+    process.stdout.write('  PUT  /api/config/active      -> set active provider (V43)\n');
     if (AUTH_TOKEN) {
       process.stdout.write('Auth: WEB_AUTH_TOKEN is set; non-health routes require it.\n');
     } else {

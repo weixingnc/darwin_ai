@@ -6,6 +6,50 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 as of v0.2.0 (currently still v0.1.0; v1.0.0 cut deferred to V22 multi-Darwin
 federation -- planned 2026-Q4).
 
+### Added (V43, 2026-06-23)
+
+- **V43 web UI: settings panel + conversation history**
+  (`feat(web): settings panel + conversation history (v43)`):
+  the V28-V36 web UI could only chat. V43 turns it into
+  something a person can use day-to-day.
+  - **Settings sidebar (left tab)**: list, add, edit,
+    delete, test-connection, and switch active provider
+    for OpenAI, Anthropic, DeepSeek, Qwen, GLM, Moonshot,
+    MiniMax. Add-form is dynamic: pick a vendor and the
+    right fields appear (Anthropic gets `version`,
+    OpenAI-compat does not). Test connection does a
+    real GET to {base_url}/models with the bearer token.
+  - **Conversation history (left tab)**: every chat
+    becomes a persisted conversation in localStorage
+    (key `darwin.conversations.v1`, cap 50 convs / 200 msgs
+    each, oldest evicted). New / switch / delete /
+    export-as-markdown per conversation. Title is auto
+    derived from the first user message.
+  - **Active-provider pill in header**: shows the current
+    provider name; click the Settings tab to switch.
+  - **Config API**: /api/config/schema (vendor catalog),
+    /api/config/providers (GET/POST),
+    /api/config/providers/<id> (GET/PUT/DELETE),
+    /api/config/providers/<id>/test (POST probe),
+    /api/config/active (GET/PUT). All under the same
+    V33 bearer-token gate.
+  - **ConfigManager** (new: core/config-manager.js): reads/
+    writes ~/.darwin/provider-<id>.yaml + ~/.darwin/.env
+    - ~/.darwin/darwin-runtime.yaml. Secrets are written
+      to .env as ${ENV_VAR} placeholders, never inline. The
+      api_key field is redacted (first 4 chars + '\*\*\*\*')
+      in every list response.
+      5 new files: core/config-manager.js (380L),
+      core/config-manager.test.js (295L, 23 tests),
+      web/config-api.js (290L, the HTTP handlers),
+      web/config-api.test.js (319L, 17 end-to-end tests against
+      a real spawned server), web/storage.js (188L,
+      localStorage helpers -- browser-only, no node test). Plus
+      web/server.js rewired (+30L: new routes, handler
+      wrappers, banner) and web/index.html grew the sidebar +
+      modal + history (548 -> 870 lines). 1360/1360 npm test
+      pass (was 1320, +40 from this commit). ESLint clean.
+
 ### Added (V41, 2026-06-22)
 
 - **V41 real outbound to Slack + Feishu from bridges**

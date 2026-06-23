@@ -12,7 +12,10 @@
       --accent: #38bdf8;
       --err: #f87171;
       --panel: #1e293b;
+      --panel-2: #0b1220;
+      --border: #334155;
     }
+    * { box-sizing: border-box; }
     body {
       background: var(--bg);
       color: var(--fg);
@@ -20,117 +23,224 @@
       margin: 0;
       height: 100vh;
       display: flex;
+      flex-direction: row;
+      overflow: hidden;
+    }
+    aside.sidebar {
+      width: 280px;
+      flex-shrink: 0;
+      background: var(--panel-2);
+      border-right: 1px solid var(--border);
+      display: flex;
       flex-direction: column;
     }
-    header {
-      padding: 1rem 1.5rem;
-      border-bottom: 1px solid #334155;
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
+    .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }
+    .sidebar-tabs button {
+      flex: 1;
+      background: transparent;
+      color: var(--muted);
+      border: 0;
+      padding: 0.75rem;
+      font: inherit;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
     }
-    h1 { margin: 0; font-size: 1.25rem; }
-    .version { color: var(--muted); font-size: 0.875rem; }
+    .sidebar-tabs button.active {
+      color: var(--fg);
+      border-bottom-color: var(--accent);
+    }
+    .sidebar-content { flex: 1; overflow-y: auto; padding: 0.5rem; }
+    .sidebar-content .tab-pane { display: none; }
+    .sidebar-content .tab-pane.active { display: block; }
+    .sidebar-section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0.5rem 0.25rem;
+    }
+    .sidebar-section-header h3 {
+      margin: 0;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .sidebar-section-header button {
+      background: transparent;
+      color: var(--accent);
+      border: 0;
+      padding: 0.25rem 0.5rem;
+      font: inherit;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    ul.conversation-list, ul.provider-list { list-style: none; padding: 0; margin: 0; }
+    ul.conversation-list li, ul.provider-list li {
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    ul.conversation-list li:hover, ul.provider-list li:hover { background: var(--panel); }
+    ul.conversation-list li.active { background: var(--panel); border-left: 2px solid var(--accent); }
+    ul.conversation-list li .conv-title {
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    ul.conversation-list li .conv-actions { display: none; gap: 0.25rem; }
+    ul.conversation-list li:hover .conv-actions { display: flex; }
+    ul.conversation-list li .conv-actions button {
+      background: transparent; color: var(--muted); border: 0;
+      padding: 0.125rem 0.25rem; font-size: 0.75rem; cursor: pointer;
+    }
+    ul.conversation-list li .conv-actions button:hover { color: var(--accent); }
+    .empty-hint { color: var(--muted); font-size: 0.875rem; padding: 0.5rem; text-align: center; }
+    .provider-row {
+      display: flex; flex-direction: column; gap: 0.25rem;
+      padding: 0.5rem 0.75rem; border-radius: 0.375rem; cursor: default;
+    }
+    .provider-row:hover { background: var(--panel); }
+    .provider-row .pname { font-weight: 600; }
+    .provider-row .pmeta { color: var(--muted); font-size: 0.75rem; }
+    .provider-row .pactions { display: flex; gap: 0.25rem; margin-top: 0.25rem; }
+    .provider-row .pactions button {
+      background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+      padding: 0.125rem 0.5rem; font-size: 0.75rem; cursor: pointer; border-radius: 0.25rem;
+    }
+    .active-provider-card {
+      padding: 0.5rem 0.75rem; background: var(--panel); border-radius: 0.375rem;
+      margin: 0.5rem; font-size: 0.875rem;
+    }
+    .active-provider-card .label { color: var(--muted); font-size: 0.75rem; }
+    .active-provider-card .value { font-weight: 600; margin-top: 0.125rem; }
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    header.top {
+      padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+      display: flex; align-items: baseline; justify-content: space-between; flex-shrink: 0;
+    }
+    header.top h1 { margin: 0; font-size: 1.25rem; }
+    .top-meta { display: flex; align-items: center; gap: 0.75rem; }
     .status { color: var(--muted); font-size: 0.875rem; }
     .status.live { color: var(--accent); }
-    main {
-      flex: 1;
-      overflow-y: auto;
-      padding: 1.5rem;
-      max-width: 800px;
-      width: 100%;
-      margin: 0 auto;
-      box-sizing: border-box;
+    .version { color: var(--muted); font-size: 0.875rem; }
+    .pill {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+      padding: 0.125rem 0.625rem; font-size: 0.75rem; color: var(--fg);
+    }
+    main.messages {
+      flex: 1; overflow-y: auto; padding: 1.5rem; max-width: 800px;
+      width: 100%; margin: 0 auto;
     }
     .msg { margin: 0.75rem 0; padding: 0.75rem 1rem; border-radius: 0.5rem; }
-    .msg.user { background: var(--accent); color: #0c1929; align-self: flex-end; max-width: 80%; margin-left: auto; }
+    .msg.user { background: var(--accent); color: #0c1929; max-width: 80%; margin-left: auto; }
     .msg.assistant { background: var(--panel); max-width: 80%; }
     .msg.error { background: #7f1d1d; color: var(--err); }
     .msg pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; }
-    /* V32: blinking caret while the assistant is streaming. */
-    .caret::after {
-      content: '\2588';
-      display: inline-block;
-      color: var(--accent);
-      margin-left: 1px;
-      animation: blink 1s steps(2, start) infinite;
-    }
+    .caret::after { content: '\2588'; display: inline-block; color: var(--accent); margin-left: 1px; animation: blink 1s steps(2, start) infinite; }
     @keyframes blink { to { visibility: hidden; } }
-    form {
-      padding: 1rem 1.5rem;
-      border-top: 1px solid #334155;
-      display: flex;
-      gap: 0.5rem;
-      max-width: 800px;
-      width: 100%;
-      margin: 0 auto;
-      box-sizing: border-box;
+    form.composer {
+      padding: 1rem 1.5rem; border-top: 1px solid var(--border);
+      display: flex; gap: 0.5rem; max-width: 800px; width: 100%; margin: 0 auto; flex-shrink: 0;
     }
-    textarea, input[type="password"] {
-      flex: 1;
-      background: var(--panel);
-      color: var(--fg);
-      border: 1px solid #334155;
-      border-radius: 0.375rem;
-      padding: 0.5rem 0.75rem;
-      font: inherit;
-      resize: vertical;
-      min-height: 2.5rem;
-      max-height: 8rem;
+    textarea, input[type="password"], input[type="text"] {
+      flex: 1; background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+      border-radius: 0.375rem; padding: 0.5rem 0.75rem; font: inherit;
+      resize: vertical; min-height: 2.5rem; max-height: 8rem;
     }
-    input[type="password"] { min-height: 2.5rem; resize: none; }
     button {
-      background: var(--accent);
-      color: #0c1929;
-      border: 0;
-      border-radius: 0.375rem;
-      padding: 0.5rem 1rem;
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
+      background: var(--accent); color: #0c1929; border: 0; border-radius: 0.375rem;
+      padding: 0.5rem 1rem; font: inherit; font-weight: 600; cursor: pointer;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    button.secondary { background: var(--panel); color: var(--fg); border: 1px solid #334155; }
+    button.secondary { background: var(--panel); color: var(--fg); border: 1px solid var(--border); }
     .hint { color: var(--muted); font-size: 0.875rem; text-align: center; padding: 2rem; }
-    /* V34: login overlay covers main until the user provides a valid token. */
     .login-wrap {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.92);
+      display: flex; align-items: center; justify-content: center; z-index: 10;
     }
     .login-card {
-      background: var(--panel);
-      padding: 1.5rem 2rem;
-      border-radius: 0.75rem;
-      max-width: 480px;
-      width: 100%;
-      border: 1px solid #334155;
+      background: var(--panel); padding: 1.5rem 2rem; border-radius: 0.75rem;
+      max-width: 480px; width: 100%; border: 1px solid var(--border);
     }
     .login-card h2 { margin: 0 0 0.5rem 0; font-size: 1.125rem; }
     .login-card p { color: var(--muted); margin: 0 0 1rem 0; font-size: 0.875rem; }
-    .login-card form { padding: 0; border: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+    .login-card form { display: flex; flex-direction: column; gap: 0.75rem; }
     .login-card .err { color: var(--err); font-size: 0.875rem; min-height: 1.25em; }
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+      display: flex; align-items: center; justify-content: center; z-index: 20;
+    }
+    .modal {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 0.75rem;
+      padding: 1.5rem; max-width: 520px; width: 90%; max-height: 85vh; overflow-y: auto;
+    }
+    .modal h2 { margin: 0 0 1rem 0; font-size: 1.125rem; }
+    .modal label { display: block; margin: 0.5rem 0 0.25rem; font-size: 0.875rem; color: var(--muted); }
+    .modal input { width: 100%; }
+    .modal .actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+    .modal .err { color: var(--err); font-size: 0.875rem; min-height: 1.25em; margin-top: 0.5rem; }
+    .modal .ok { color: #4ade80; font-size: 0.875rem; min-height: 1.25em; margin-top: 0.5rem; }
+    .hidden { display: none !important; }
+    .footer-info {
+      padding: 0.5rem 0.75rem; color: var(--muted); font-size: 0.75rem;
+      text-align: center; border-top: 1px solid var(--border);
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Darwin</h1>
-    <div>
-      <span class="status" id="status">connecting</span>
-      <span class="version" id="version">v...</span>
-      <button type="button" id="logout" class="secondary" hidden>Sign out</button>
+  <aside class="sidebar">
+    <div class="sidebar-tabs">
+      <button type="button" class="tab active" data-tab="chat">Chat</button>
+      <button type="button" class="tab" data-tab="settings">Settings</button>
     </div>
-  </header>
-  <main id="messages" hidden>
-    <div class="hint">Ask Darwin anything. Set your provider with <code>darwin config add</code> on the host first.</div>
-  </main>
-  <form id="form" hidden>
-    <button type="button" id="stop" class="secondary" hidden>Stop</button>
-    <textarea id="input" placeholder="Message Darwin..." autofocus required></textarea>
-    <button type="submit" id="send">Send</button>
-  </form>
+    <div class="sidebar-content">
+      <div class="tab-pane active" data-tab="chat">
+        <div class="sidebar-section-header">
+          <h3>Conversations</h3>
+          <button type="button" id="newChatBtn">+ New</button>
+        </div>
+        <ul class="conversation-list" id="conversationList"></ul>
+        <div class="empty-hint" id="convEmpty" hidden>No conversations yet</div>
+      </div>
+      <div class="tab-pane" data-tab="settings">
+        <div class="active-provider-card" id="activeProviderCard">
+          <div class="label">Active provider</div>
+          <div class="value" id="activeProviderName">-- not set --</div>
+        </div>
+        <div class="sidebar-section-header">
+          <h3>Providers</h3>
+          <button type="button" id="addProviderBtn">+ Add</button>
+        </div>
+        <ul class="provider-list" id="providerList"></ul>
+        <div class="empty-hint" id="providerEmpty" hidden>No providers. Add one to start chatting.</div>
+      </div>
+    </div>
+    <div class="footer-info">V43 - web UI</div>
+  </aside>
+
+  <div class="main">
+    <header class="top">
+      <h1>Darwin</h1>
+      <div class="top-meta">
+        <span class="status" id="status">connecting</span>
+        <span class="pill" id="activePill" title="Active provider">...</span>
+        <span class="version" id="version">v...</span>
+        <button type="button" id="logout" class="secondary" hidden>Sign out</button>
+      </div>
+    </header>
+    <main class="messages" id="messages" hidden>
+      <div class="hint">Ask Darwin anything. Configure a provider in the <strong>Settings</strong> tab on the left.</div>
+    </main>
+    <form class="composer" id="form" hidden>
+      <button type="button" id="stop" class="secondary" hidden>Stop</button>
+      <textarea id="input" placeholder="Message Darwin..." autofocus required></textarea>
+      <button type="submit" id="send">Send</button>
+    </form>
+  </div>
+
   <div class="login-wrap" id="loginWrap" hidden>
     <div class="login-card">
       <h2>Sign in</h2>
@@ -142,390 +252,591 @@
       </form>
     </div>
   </div>
+
+  <div class="modal-backdrop hidden" id="providerModal" hidden>
+    <div class="modal">
+      <h2 id="modalTitle">Add provider</h2>
+      <form id="providerForm">
+        <label>Vendor</label>
+        <select id="vendorSelect" class="secondary" style="width:100%;padding:0.5rem;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:0.375rem;"></select>
+        <div id="dynamicFields"></div>
+        <div class="err" id="modalErr"></div>
+        <div class="ok" id="modalOk"></div>
+        <div class="actions">
+          <button type="button" class="secondary" id="modalCancel">Cancel</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="./storage.js"></script>
   <script>
-    // V34: auth flow + V32 streaming chat. The page boots by calling
-    // /api/health to discover whether the server requires auth. If
-    // auth_required is true, we look for a token in localStorage
-    // (or capture ?token=... from the URL) and either enter the
-    // chat or render the login card. Every protected fetch goes
-    // through authedFetch(), which injects the Authorization header
-    // and reacts to 401 by clearing the token and bouncing back to
-    // the login screen.
-    const form = document.getElementById('form');
-    const input = document.getElementById('input');
-    const send = document.getElementById('send');
-    const stop = document.getElementById('stop');
-    const messages = document.getElementById('messages');
-    const versionEl = document.getElementById('version');
+    // V34 + V32 + V43 entry. See storage.js for the persistence layer.
+    // V43 adds: sidebar (Chat/Settings tabs), conversation history
+    // (localStorage), provider add/edit modal with dynamic form,
+    // active-provider switcher, and per-conversation markdown export.
+
+    // ----- DOM handles -----
     const statusEl = document.getElementById('status');
+    const versionEl = document.getElementById('version');
+    const activePill = document.getElementById('activePill');
     const logoutBtn = document.getElementById('logout');
+    const messagesEl = document.getElementById('messages');
+    const formEl = document.getElementById('form');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const stopBtn = document.getElementById('stop');
     const loginWrap = document.getElementById('loginWrap');
     const loginForm = document.getElementById('loginForm');
-    const tokenInput = document.getElementById('token');
     const loginErr = document.getElementById('loginErr');
-    const loginBtn = document.getElementById('loginBtn');
+    const tokenInput = document.getElementById('token');
+    const conversationListEl = document.getElementById('conversationList');
+    const convEmpty = document.getElementById('convEmpty');
+    const newChatBtn = document.getElementById('newChatBtn');
+    const providerListEl = document.getElementById('providerList');
+    const providerEmpty = document.getElementById('providerEmpty');
+    const addProviderBtn = document.getElementById('addProviderBtn');
+    const activeProviderCard = document.getElementById('activeProviderCard');
+    const activeProviderName = document.getElementById('activeProviderName');
+    const providerModal = document.getElementById('providerModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const vendorSelect = document.getElementById('vendorSelect');
+    const dynamicFields = document.getElementById('dynamicFields');
+    const providerForm = document.getElementById('providerForm');
+    const modalCancel = document.getElementById('modalCancel');
+    const modalErr = document.getElementById('modalErr');
+    const modalOk = document.getElementById('modalOk');
 
-    const TOKEN_KEY = 'darwin.authToken';
+    let authToken = null;
+    let authRequired = false;
+    let activeStream = null;
+    let currentConv = null;
+    let vendorCatalog = [];
+    let editingProviderId = null;
 
-    let activeStream = null; // AbortController for the in-flight request
-    let authRequired = false; // discovered from /api/health on boot
-    let authToken = null; // current bearer token (mirrors localStorage)
-
-    function readToken() {
-      try {
-        return localStorage.getItem(TOKEN_KEY);
-      } catch (_) {
-        return null;
-      }
-    }
-    function writeToken(t) {
-      try {
-        localStorage.setItem(TOKEN_KEY, t);
-      } catch (_) {
-        /* ignore quota / private-mode */
-      }
-    }
-    function clearToken() {
-      try {
-        localStorage.removeItem(TOKEN_KEY);
-      } catch (_) {
-        /* ignore */
-      }
-    }
-
-    // V34: extract ?token= from the URL once on boot. If present,
-    // we adopt it (saving the user from copy-paste) and strip the
-    // query so it does not leak into browser history or shared
-    // screenshots.
+    // ----- V34: auth + boot -----
     function adoptTokenFromUrl() {
-      const url = new URL(window.location.href);
-      const t = url.searchParams.get('token');
-      if (t && t.length > 0) {
-        writeToken(t);
-        url.searchParams.delete('token');
-        const clean = url.pathname + (url.search ? url.search : '') + url.hash;
-        window.history.replaceState({}, document.title, clean);
-        return t;
-      }
+      try {
+        const u = new URL(window.location.href);
+        const t = u.searchParams.get('token');
+        if (t) {
+          u.searchParams.delete('token');
+          window.history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
+          return t;
+        }
+      } catch (e) { /* ignore */ }
       return null;
     }
-
+    function readToken() { return localStorage.getItem('darwin.authToken') || null; }
+    function writeToken(t) { localStorage.setItem('darwin.authToken', t); }
     function setStatus(text, live) {
       statusEl.textContent = text;
       statusEl.classList.toggle('live', !!live);
     }
-
+    function authedFetch(path, opts) {
+      opts = opts || {};
+      opts.headers = Object.assign({}, opts.headers || {});
+      if (authToken) opts.headers['Authorization'] = 'Bearer ' + authToken;
+      return fetch(path, opts).then((r) => {
+        if (r.status === 401) {
+          showLogin('saved token rejected -- paste the new one');
+          throw new Error('auth failed');
+        }
+        return r;
+      });
+    }
     function showLogin(errMsg) {
-      authToken = null;
-      clearToken();
-      logoutBtn.hidden = true;
-      form.hidden = true;
-      messages.hidden = true;
+      if (errMsg) loginErr.textContent = errMsg;
       loginWrap.hidden = false;
-      loginErr.textContent = errMsg || '';
-      tokenInput.value = '';
+      messagesEl.hidden = true;
+      formEl.hidden = true;
       tokenInput.focus();
     }
-
     function showChat() {
-      logoutBtn.hidden = false;
-      form.hidden = false;
-      messages.hidden = false;
       loginWrap.hidden = true;
-      setStatus('idle', false);
-      input.focus();
+      messagesEl.hidden = false;
+      formEl.hidden = false;
+      inputEl.focus();
     }
 
-    // V34: a fetch wrapper that injects the bearer token when auth
-    // is required. It also detects 401 and bounces back to the
-    // login screen, so a stale token does not leave the user stuck.
-    async function authedFetch(path, opts = {}) {
-      const headers = { ...(opts.headers || {}) };
-      if (authRequired && authToken) {
-        headers['Authorization'] = 'Bearer ' + authToken;
-      }
-      const r = await fetch(path, { ...opts, headers });
-      if (authRequired && r.status === 401) {
-        showLogin('token rejected -- paste the new one');
-        throw new Error('auth failed');
-      }
-      return r;
-    }
-
-    function append(role, text) {
+    // ----- V32: streaming chat -----
+    function appendMsg(role, text) {
       const div = document.createElement('div');
       div.className = 'msg ' + role;
       const pre = document.createElement('pre');
-      pre.textContent = text;
+      pre.textContent = text || '';
       div.appendChild(pre);
-      messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
-      return pre;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return { div, pre };
     }
-
-    function appendStreaming() {
-      const div = document.createElement('div');
-      div.className = 'msg assistant';
-      const pre = document.createElement('pre');
-      pre.classList.add('caret');
-      div.appendChild(pre);
-      messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
+    function setCaret(node, on) { node.classList.toggle('caret', !!on); }
+    function startAssistantMsg() {
+      const { div, pre } = appendMsg('assistant', '');
+      setCaret(pre, true);
       return {
         append(text) {
           pre.textContent += text;
-          messages.scrollTop = messages.scrollHeight;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
         },
         finish() {
-          pre.classList.remove('caret');
-          messages.scrollTop = messages.scrollHeight;
+          setCaret(pre, false);
+          if (currentConv) {
+            appendMessage(currentConv, { role: 'assistant', text: pre.textContent });
+            putConversation(currentConv);
+            renderConversationList();
+          }
         },
-        fail(errText) {
-          pre.classList.remove('caret');
-          div.className = 'msg error';
-          pre.textContent = 'x ' + errText;
-          messages.scrollTop = messages.scrollHeight;
+        fail(errMsg) {
+          setCaret(pre, false);
+          div.classList.add('error');
+          pre.textContent = 'Error: ' + errMsg;
+          if (currentConv) {
+            appendMessage(currentConv, { role: 'error', text: pre.textContent });
+            putConversation(currentConv);
+            renderConversationList();
+          }
         },
       };
     }
-
-    async function loadVersion() {
-      try {
-        const r = await authedFetch('/api/health');
-        const j = await r.json();
-        versionEl.textContent = 'v' + j.version;
-        authRequired = !!j.auth_required;
-      } catch {
-        versionEl.textContent = 'unknown';
-      }
-    }
-
-    // Parse an SSE byte stream into { type: 'chunk'|'done'|'error', ... }
-    // objects. The server's frame shape is:
-    //   data: {"type":"chunk","text":"..."}\\n\\n
-    //   data: {"type":"done"}\\n\\n
-    //   data: {"type":"error","error":"..."}\\n\\n
-    function parseSseStream(body) {
+    async function parseSseStream(body) {
       const reader = body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      const queue = [];
-      let resolveNext = null;
-      const pump = () =>
-        reader.read().then(({ value, done }) => {
-          if (done) {
-            if (buffer.trim()) {
-              const frame = parseFrame(buffer);
-              if (frame) queue.push(frame);
-            }
-            queue.push({ type: '__done__' });
-            if (resolveNext) {
-              resolveNext();
-              resolveNext = null;
-            }
-            return;
-          }
-          buffer += decoder.decode(value, { stream: true });
-          let idx;
-          while ((idx = buffer.indexOf('\\n\\n')) !== -1) {
-            const block = buffer.slice(0, idx);
-            buffer = buffer.slice(idx + 2);
-            const frame = parseFrame(block);
-            if (frame) queue.push(frame);
-          }
-          if (resolveNext) {
-            resolveNext();
-            resolveNext = null;
-          }
-        });
-      pump().catch((e) => {
-        queue.push({ type: 'error', error: String(e) });
-        queue.push({ type: '__done__' });
-        if (resolveNext) {
-          resolveNext();
-          resolveNext = null;
-        }
-      });
+      const dec = new TextDecoder();
+      let buf = '';
       return {
         async next() {
-          if (queue.length > 0) return queue.shift();
-          return new Promise((res) => {
-            resolveNext = () => res(queue.shift());
-          });
+          for (;;) {
+            const nl = buf.indexOf('\n');
+            if (nl !== -1) {
+              const line = buf.slice(0, nl);
+              buf = buf.slice(nl + 1);
+              if (line.startsWith('data:')) {
+                const raw = line.slice(5).trim();
+                if (!raw) continue;
+                try { return JSON.parse(raw); }
+                catch (e) { return { type: 'chunk', text: raw }; }
+              }
+              continue;
+            }
+            const { value, done } = await reader.read();
+            if (done) {
+              if (buf.trim()) {
+                const tail = buf.trim();
+                buf = '';
+                if (tail.startsWith('data:')) {
+                  try { return JSON.parse(tail.slice(5).trim()); }
+                  catch (e) { return { type: 'chunk', text: tail }; }
+                }
+              }
+              return { type: '__done__' };
+            }
+            buf += dec.decode(value, { stream: true });
+          }
         },
       };
     }
-
-    function parseFrame(block) {
-      const line = block.split('\\n').find((l) => l.startsWith('data: '));
-      if (!line) return null;
-      try {
-        return JSON.parse(line.slice('data: '.length));
-      } catch {
-        return null;
-      }
-    }
-
     async function sendMessage(message) {
-      append('user', message);
-      const stream = appendStreaming();
-      const ac = new AbortController();
-      activeStream = ac;
-      stop.hidden = false;
-      send.disabled = true;
-      input.disabled = true;
+      if (!currentConv) currentConv = createConversation();
+      appendMessage(currentConv, { role: 'user', text: message });
+      currentConv.title = deriveTitle(currentConv.messages);
+      putConversation(currentConv);
+      renderConversationList();
+      appendMsg('user', message);
+      const stream = startAssistantMsg();
       setStatus('streaming', true);
+      stopBtn.hidden = false;
+      sendBtn.disabled = true;
+      inputEl.disabled = true;
+      const ac = new AbortController();
+      activeStream = { abort: () => ac.abort() };
       let finished = false;
       try {
         const r = await authedFetch('/api/chat', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'text/event-stream',
-          },
+          headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
           body: JSON.stringify({ message }),
           signal: ac.signal,
         });
         if (!r.ok) {
           let j;
-          try {
-            j = await r.json();
-          } catch {
-            j = { error: 'HTTP ' + r.status };
-          }
+          try { j = await r.json(); } catch (e) { j = { error: 'HTTP ' + r.status }; }
           stream.fail(j.error || 'HTTP ' + r.status);
           return;
         }
-        if (!r.body) {
-          stream.fail('no response body');
-          return;
-        }
+        if (!r.body) { stream.fail('no response body'); return; }
         const sse = parseSseStream(r.body);
         for (;;) {
           const frame = await sse.next();
           if (!frame || frame.type === '__done__') break;
-          if (frame.type === 'chunk') {
-            stream.append(frame.text || '');
-          } else if (frame.type === 'done') {
-            finished = true;
-            break;
-          } else if (frame.type === 'error') {
-            stream.fail(frame.error || 'stream error');
-            finished = true;
-            break;
-          }
+          if (frame.type === 'chunk') stream.append(frame.text || '');
+          else if (frame.type === 'done') { finished = true; break; }
+          else if (frame.type === 'error') { stream.fail(frame.error || 'stream error'); finished = true; break; }
         }
         if (!finished) stream.finish();
       } catch (e) {
-        if (e && e.name === 'AbortError') {
-          stream.finish();
-        } else if (e && e.message === 'auth failed') {
-          // authedFetch already routed us to the login screen.
-          return;
-        } else {
-          stream.fail(String(e));
-        }
+        if (e && e.name === 'AbortError') stream.finish();
+        else if (e && e.message === 'auth failed') return;
+        else stream.fail(String(e));
       } finally {
         activeStream = null;
-        stop.hidden = true;
-        send.disabled = false;
-        input.disabled = false;
+        stopBtn.hidden = true;
+        sendBtn.disabled = false;
+        inputEl.disabled = false;
         setStatus('idle', false);
-        input.focus();
+        inputEl.focus();
       }
     }
-
     function stopStream() {
       if (activeStream) {
-        try {
-          activeStream.abort();
-        } catch {
-          /* ignore */
-        }
+        try { activeStream.abort(); } catch (e) { /* ignore */ }
       }
     }
 
-    // --- V34: boot flow -------------------------------------------------
+    // ----- V43: sidebar tabs -----
+    function setActiveTab(name) {
+      document.querySelectorAll('.sidebar-tabs .tab').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === name);
+      });
+      document.querySelectorAll('.tab-pane').forEach((p) => {
+        p.classList.toggle('active', p.dataset.tab === name);
+      });
+      const prefs = getPrefs();
+      prefs.activeTab = name;
+      setPrefs(prefs);
+      if (name === 'settings') {
+        loadProviders();
+        loadActiveProvider();
+      }
+    }
+    document.querySelectorAll('.sidebar-tabs .tab').forEach((b) => {
+      b.addEventListener('click', () => setActiveTab(b.dataset.tab));
+    });
 
+    // ----- V43: conversation list -----
+    function renderConversationList() {
+      const all = loadConversations();
+      conversationListEl.innerHTML = '';
+      if (all.length === 0) {
+        convEmpty.hidden = false;
+        return;
+      }
+      convEmpty.hidden = true;
+      for (const c of all) {
+        const li = document.createElement('li');
+        if (c.id === getActiveId()) li.classList.add('active');
+        const title = document.createElement('span');
+        title.className = 'conv-title';
+        title.textContent = c.title || 'New conversation';
+        title.addEventListener('click', () => loadConversation(c.id));
+        li.appendChild(title);
+        const actions = document.createElement('span');
+        actions.className = 'conv-actions';
+        const exportBtn = document.createElement('button');
+        exportBtn.type = 'button';
+        exportBtn.textContent = 'Download';
+        exportBtn.title = 'Export as markdown';
+        exportBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const md = conversationToMarkdown(c);
+          const safe = (c.title || 'conversation').replace(/[^\w-]+/g, '_').slice(0, 40);
+          downloadText(safe + '.md', md, 'text/markdown');
+        });
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = 'Delete';
+        delBtn.title = 'Delete';
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (confirm('Delete this conversation?')) {
+            deleteConversation(c.id);
+            const newActive = getActiveId();
+            currentConv = newActive ? getConversation(newActive) : null;
+            renderMessages(currentConv);
+            renderConversationList();
+          }
+        });
+        actions.appendChild(exportBtn);
+        actions.appendChild(delBtn);
+        li.appendChild(actions);
+        conversationListEl.appendChild(li);
+      }
+    }
+    function loadConversation(id) {
+      const c = getConversation(id);
+      if (!c) return;
+      currentConv = c;
+      setActiveId(id);
+      renderConversationList();
+      renderMessages(c);
+    }
+    function renderMessages(conv) {
+      messagesEl.innerHTML = '';
+      if (!conv || !conv.messages || conv.messages.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = 'Ask Darwin anything. Configure a provider in the Settings tab on the left.';
+        messagesEl.appendChild(hint);
+        return;
+      }
+      for (const m of conv.messages) {
+        appendMsg(m.role, m.text);
+      }
+    }
+    newChatBtn.addEventListener('click', () => {
+      currentConv = createConversation();
+      renderConversationList();
+      renderMessages(currentConv);
+      inputEl.focus();
+    });
+
+    // ----- V43: settings (providers + active) -----
+    async function loadVendorCatalog() {
+      try {
+        const r = await authedFetch('/api/config/schema');
+        if (!r.ok) return;
+        const j = await r.json();
+        vendorCatalog = j.vendors || [];
+      } catch (e) { /* ignore */ }
+    }
+    function renderProviderList(providers) {
+      providerListEl.innerHTML = '';
+      if (!providers || providers.length === 0) {
+        providerEmpty.hidden = false;
+        return;
+      }
+      providerEmpty.hidden = true;
+      for (const p of providers) {
+        const li = document.createElement('li');
+        li.className = 'provider-row';
+        const name = document.createElement('div');
+        name.className = 'pname';
+        name.textContent = p.label || p.id;
+        const meta = document.createElement('div');
+        meta.className = 'pmeta';
+        meta.textContent = p.id + ' -- ' + (p.default_model || '');
+        const actions = document.createElement('div');
+        actions.className = 'pactions';
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.textContent = 'Use';
+        useBtn.addEventListener('click', () => activateProvider(p.id));
+        const testBtn = document.createElement('button');
+        testBtn.type = 'button';
+        testBtn.textContent = 'Test';
+        testBtn.addEventListener('click', () => testProvider(p.id));
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', () => openProviderModal(p.id));
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = 'Delete';
+        delBtn.addEventListener('click', () => {
+          if (confirm('Delete provider ' + p.id + '?')) deleteProvider(p.id);
+        });
+        actions.appendChild(useBtn);
+        actions.appendChild(testBtn);
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        li.appendChild(name);
+        li.appendChild(meta);
+        li.appendChild(actions);
+        providerListEl.appendChild(li);
+      }
+    }
+    async function loadProviders() {
+      try {
+        const r = await authedFetch('/api/config/providers');
+        if (!r.ok) return;
+        const j = await r.json();
+        renderProviderList(j.providers);
+      } catch (e) { /* ignore */ }
+    }
+    async function loadActiveProvider() {
+      try {
+        const r = await authedFetch('/api/config/active');
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j.provider) {
+          activeProviderName.textContent = j.provider + (j.model ? ' -- ' + j.model : '');
+          activePill.textContent = j.provider;
+        } else {
+          activeProviderName.textContent = '-- not set --';
+          activePill.textContent = '...';
+        }
+      } catch (e) { /* ignore */ }
+    }
+    async function deleteProvider(id) {
+      try {
+        await authedFetch('/api/config/providers/' + encodeURIComponent(id), { method: 'DELETE' });
+        await loadProviders();
+        await loadActiveProvider();
+      } catch (e) { alert('delete failed: ' + e.message); }
+    }
+    async function testProvider(id) {
+      try {
+        const r = await authedFetch('/api/config/providers/' + encodeURIComponent(id) + '/test', { method: 'POST' });
+        const j = await r.json();
+        if (j.ok) alert('OK (' + j.latencyMs + ' ms) -- ' + (j.hint || 'reachable'));
+        else alert('FAIL: HTTP ' + j.status + ' -- ' + (j.hint || 'see server log'));
+      } catch (e) { alert('test failed: ' + e.message); }
+    }
+    async function activateProvider(id) {
+      try {
+        const r = await authedFetch('/api/config/active', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: id }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          alert('activate failed: ' + (j.error || r.status));
+          return;
+        }
+        await loadActiveProvider();
+      } catch (e) { alert('activate failed: ' + e.message); }
+    }
+
+    // V43: provider add/edit modal
+    function openProviderModal(editId) {
+      editingProviderId = editId || null;
+      modalTitle.textContent = editId ? ('Edit ' + editId) : 'Add provider';
+      modalErr.textContent = '';
+      modalOk.textContent = '';
+      vendorSelect.innerHTML = '';
+      for (const v of vendorCatalog) {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = v.label;
+        vendorSelect.appendChild(opt);
+      }
+      if (editId) {
+        vendorSelect.value = editId;
+        vendorSelect.disabled = true;
+      } else {
+        vendorSelect.disabled = false;
+      }
+      renderDynamicFields();
+      if (editId) loadProviderIntoForm(editId);
+      providerModal.hidden = false;
+    }
+    function closeProviderModal() {
+      providerModal.hidden = true;
+      editingProviderId = null;
+      vendorSelect.disabled = false;
+    }
+    function renderDynamicFields() {
+      const vendor = vendorCatalog.find((v) => v.id === vendorSelect.value);
+      dynamicFields.innerHTML = '';
+      if (!vendor) return;
+      for (const f of vendor.fields) {
+        const label = document.createElement('label');
+        label.textContent = f.label + (f.required ? ' *' : '');
+        const input = document.createElement('input');
+        input.type = f.type || 'text';
+        input.name = f.name;
+        input.placeholder = f.placeholder || '';
+        if (f.default && !editingProviderId) input.value = f.default;
+        input.required = !!f.required;
+        input.dataset.secret = f.secret ? '1' : '0';
+        if (f.secret) {
+          input.placeholder = input.placeholder || '(leave blank to keep existing)';
+        }
+        dynamicFields.appendChild(label);
+        dynamicFields.appendChild(input);
+      }
+    }
+    async function loadProviderIntoForm(id) {
+      try {
+        const r = await authedFetch('/api/config/providers/' + encodeURIComponent(id));
+        if (!r.ok) return;
+        const j = await r.json();
+        for (const input of dynamicFields.querySelectorAll('input')) {
+          const v = j[input.name];
+          if (typeof v === 'string' && v.length > 0) input.value = v;
+        }
+      } catch (e) { /* ignore */ }
+    }
+    vendorSelect.addEventListener('change', renderDynamicFields);
+    addProviderBtn.addEventListener('click', () => openProviderModal(null));
+    modalCancel.addEventListener('click', closeProviderModal);
+    providerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      modalErr.textContent = '';
+      modalOk.textContent = '';
+      const data = {};
+      let reveal = false;
+      for (const input of dynamicFields.querySelectorAll('input')) {
+        if (input.dataset.secret === '1' && input.value) reveal = true;
+        if (input.value) data[input.name] = input.value;
+      }
+      const vendorId = vendorSelect.value;
+      const method = editingProviderId ? 'PUT' : 'POST';
+      const url = editingProviderId
+        ? '/api/config/providers/' + encodeURIComponent(editingProviderId)
+        : '/api/config/providers';
+      const body = { data, reveal };
+      if (!editingProviderId) body.id = vendorId;
+      try {
+        const r = await authedFetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          modalErr.textContent = j.error || ('HTTP ' + r.status);
+          return;
+        }
+        modalOk.textContent = 'Saved';
+        await loadProviders();
+        setTimeout(closeProviderModal, 400);
+      } catch (err) {
+        modalErr.textContent = String(err);
+      }
+    });
+
+    // ----- V34: boot -----
     async function boot() {
       setStatus('connecting', false);
-      // 1. Capture ?token=... if the URL has one (one-shot link).
       const urlToken = adoptTokenFromUrl();
       if (urlToken) authToken = urlToken;
-      // 2. Probe /api/health. /api/health is open even with auth on, so
-      //    this tells us whether the server wants a token without
-      //    failing the boot on missing creds.
       let health;
       try {
         const r = await fetch('/api/health');
-        if (!r.ok) {
-          showLogin('health check failed: HTTP ' + r.status);
-          return;
-        }
+        if (!r.ok) { showLogin('health check failed: HTTP ' + r.status); return; }
         health = await r.json();
-      } catch (e) {
-        showLogin('cannot reach the server: ' + String(e));
-        return;
-      }
+      } catch (e) { showLogin('cannot reach the server: ' + String(e)); return; }
       versionEl.textContent = 'v' + (health.version || '?');
       authRequired = !!health.auth_required;
-      // 3. Branch on auth mode.
-      if (!authRequired) {
-        showChat();
-        return;
-      }
-      // Auth required. Try stored token, else fall back to login card.
+      if (!authRequired) { showChat(); return; }
       if (!authToken) authToken = readToken();
-      if (!authToken) {
-        showLogin('');
-        return;
-      }
-      // We have a candidate token. Verify it against a protected route
-      // (POST /api/chat with an obviously-empty message returns 400 if
-      // auth passes, 401 if it doesn't -- either is a clear signal).
+      if (!authToken) { showLogin(''); return; }
       try {
         const r = await authedFetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: '' }),
         });
-        if (r.status === 401) {
-          showLogin('saved token rejected -- paste the new one');
-          return;
-        }
-        // 400 means "empty message" -- auth passed, so we can enter.
-        if (r.status === 400) {
-          showChat();
-          return;
-        }
-        // Anything else (500, 200, ...) we treat as "good enough" --
-        // the server is up and we got past the auth gate.
+        if (r.status === 401) { showLogin('saved token rejected -- paste the new one'); return; }
         showChat();
-      } catch (_) {
-        showLogin('saved token rejected -- paste the new one');
-      }
+      } catch (e) { showLogin('saved token rejected -- paste the new one'); }
     }
-
-    form.addEventListener('submit', (e) => {
+    formEl.addEventListener('submit', (e) => {
       e.preventDefault();
-      const message = input.value.trim();
-      if (!message) return;
-      input.value = '';
-      sendMessage(message);
+      const m = inputEl.value.trim();
+      if (!m) return;
+      inputEl.value = '';
+      sendMessage(m);
     });
-
-    stop.addEventListener('click', () => {
-      stopStream();
-    });
-
-    input.addEventListener('keydown', (e) => {
+    stopBtn.addEventListener('click', stopStream);
+    inputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        form.requestSubmit();
+        formEl.requestSubmit();
       }
     });
-
-    // V34: login form submit.
     loginForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const t = tokenInput.value.trim();
@@ -533,15 +844,26 @@
       authToken = t;
       writeToken(t);
       loginErr.textContent = '';
-      // Re-run boot to verify and enter the chat.
       boot();
     });
+    logoutBtn.addEventListener('click', () => { showLogin(''); });
 
-    // V34: Sign out -- clear the token and bounce to login.
-    logoutBtn.addEventListener('click', () => {
-      showLogin('');
-    });
-
+    function restoreSession() {
+      const prefs = getPrefs();
+      if (prefs.activeTab && prefs.activeTab !== 'chat') setActiveTab(prefs.activeTab);
+      const lastId = getActiveId();
+      const conv = getConversation(lastId);
+      if (conv) {
+        currentConv = conv;
+        renderMessages(conv);
+      } else {
+        renderMessages(null);
+      }
+      renderConversationList();
+    }
+    loadVendorCatalog();
+    loadActiveProvider();
+    restoreSession();
     boot();
   </script>
 </body>
