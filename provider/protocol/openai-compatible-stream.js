@@ -26,6 +26,7 @@
 
 import { ErrorHandler } from '../../core/error-handler.js';
 import { createOpenAICompatibleProtocol } from './openai-compatible.js';
+import { splitThinkBlocks } from './_shared.js';
 
 const DONE_MARKER = '[DONE]';
 
@@ -97,38 +98,6 @@ function extractDataPayload(eventBlock) {
     }
   }
   return null;
-}
-
-/** Split accumulated text into {visible, reasoning} by <think>...</think> pairs.
- *  V45: keeps <think>...</think> blocks out of the user-visible content;
- *  exposes them via state.reasoning (alongside API-level reasoning_content).
- *  An unclosed <think> is treated as reasoning (safe; never leaks partial thinking).
- *  Returns {visible: string, reasoning: string}; both default to '' on bad input.
- */
-function splitThinkBlocks(raw) {
-  const out = { visible: '', reasoning: '' };
-  if (typeof raw !== 'string' || raw.length === 0) {
-    return out;
-  }
-  const openTag = '<think>';
-  const closeTag = '</think>';
-  let i = 0;
-  while (i < raw.length) {
-    const openIdx = raw.indexOf(openTag, i);
-    if (openIdx === -1) {
-      out.visible += raw.slice(i);
-      return out;
-    }
-    out.visible += raw.slice(i, openIdx);
-    const closeIdx = raw.indexOf(closeTag, openIdx + openTag.length);
-    if (closeIdx === -1) {
-      out.reasoning += raw.slice(openIdx + openTag.length);
-      return out;
-    }
-    out.reasoning += raw.slice(openIdx + openTag.length, closeIdx);
-    i = closeIdx + closeTag.length;
-  }
-  return out;
 }
 
 /** Apply one delta's effects on the accumulator; returns {content, finishReason} snapshot. */

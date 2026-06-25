@@ -216,3 +216,42 @@ export function joinChatUrl(baseUrl, chatPath) {
   // path.join collapses double slashes; preserves leading / on chatPath.
   return baseUrl + path.normalize(chatPath).replace(/\\/g, '/');
 }
+
+/**
+ * Split accumulated text into {visible, reasoning} by <think>...</think> pairs.
+ * V45: keeps <think>...</think> blocks out of the user-visible content;
+ * exposes them via state.reasoning (alongside API-level reasoning_content).
+ * An unclosed <think> is treated as reasoning (safe; never leaks partial
+ * thinking). Returns {visible: string, reasoning: string}; both default
+ * to '' on bad input.
+ *
+ * V45.1: lifted out of openai-compatible-stream.js so the chat path
+ * (openai-compatible.js) can reuse it. Before this, the chat path
+ * shipped `...` in the user-visible content because the stream-only
+ * helper was the only place that stripped them.
+ */
+export function splitThinkBlocks(raw) {
+  const out = { visible: '', reasoning: '' };
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return out;
+  }
+  const openTag = '<think>';
+  const closeTag = '</think>';
+  let i = 0;
+  while (i < raw.length) {
+    const openIdx = raw.indexOf(openTag, i);
+    if (openIdx === -1) {
+      out.visible += raw.slice(i);
+      return out;
+    }
+    out.visible += raw.slice(i, openIdx);
+    const closeIdx = raw.indexOf(closeTag, openIdx + openTag.length);
+    if (closeIdx === -1) {
+      out.reasoning += raw.slice(openIdx + openTag.length);
+      return out;
+    }
+    out.reasoning += raw.slice(openIdx + openTag.length, closeIdx);
+    i = closeIdx + closeTag.length;
+  }
+  return out;
+}

@@ -214,11 +214,16 @@ function chatOnce(message) {
     child.on('error', rejectChat);
     child.on('close', (code) => {
       if (code === 0) {
-        resolveChat(stdout.trim());
-      } else {
-        const msg = (stderr || stdout).trim();
-        rejectChat(new Error(msg || `darwin chat exited with code ${code}`));
+        // V45.1: stdout now contains ONLY the model content (no banner,
+        // no protocol tag -- those moved to stderr in V45.1). Trim
+        // trailing newline; leading/trailing whitespace was always
+        // intentional from the model's perspective.
+        resolveChat(stdout.replace(/\n$/, ''));
+        return;
       }
+      // Failure path: prefer stderr (operator logs), fall back to stdout.
+      const msg = (stderr || stdout).trim();
+      rejectChat(new Error(msg || `darwin chat exited with code ${code}`));
     });
   });
 }
@@ -279,7 +284,22 @@ function streamChat(res, message) {
       const line = buf.slice(0, nl);
       buf = buf.slice(nl + 1);
       if (line.startsWith('chunk:')) {
-        sendFrame({ type: 'chunk', text: line.slice('chunk:'.length) });
+        // V45.1: chat.js#streamChat now JSON-encodes the chunk text so
+        // any embedded \n in the reply survives a single-line frame
+        // intact. Decode the same way before forwarding to the browser.
+        // Falls back to the raw slice on JSON parse failure (older
+        // chat.js / hand-rolled callers) so a regression in the encoder
+        // does not silently drop content.
+        const encoded = line.slice('chunk:'.length);
+        let text = encoded;
+        try {
+          text = JSON.parse(encoded);
+        } catch (_) {
+          /* keep raw slice */
+        }
+        if (typeof text === 'string' && text.length > 0) {
+          sendFrame({ type: 'chunk', text });
+        }
       } else if (line === 'done:') {
         sendFrame({ type: 'done' });
         finish();

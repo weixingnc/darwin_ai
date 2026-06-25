@@ -158,16 +158,50 @@ describe('parseResponse', () => {
     assert.equal((await p.parseResponse({ choices: [] })).ok, false);
     assert.equal((await p.parseResponse(null)).ok, false);
   });
+  // V45.1: parseResponseBody now strips <think>...</think> blocks via
+  // the shared splitThinkBlocks helper (lifted from the stream path).
+  // Reasoning models (DeepSeek R1 / Qwen QwQ / GLM Z1 / MiniMax-M3)
+  // emit `...` inline; before V45.1, the chat path shipped
+  // that raw text into r.value.content, which the web UI then showed
+  // to the user. After V45.1, only the visible part is returned.
+  test('V45.1: strips <think>...</think> from chat path content (no leakage)', async () => {
+    const { p } = make();
+    const e = await p.parseResponse({
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            role: 'assistant',
+            content: '<think>chain of thought</think>visible answer',
+          },
+        },
+      ],
+    });
+    assert.equal(e.ok, true);
+    assert.equal(e.value.content, 'visible answer');
+  });
+  test('V45.1: leaves content untouched when there is no think block', async () => {
+    const { p } = make();
+    const e = await p.parseResponse({
+      choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'plain reply' } }],
+    });
+    assert.equal(e.value.content, 'plain reply');
+  });
 });
 describe('v1 fix #5/#6: finish_reason / stop_reason logs', () => {
   let logs, orig;
   beforeEach(() => {
-    orig = console.log;
+    // V45.1: logFinishOrStop moved to console.error (stderr) so the
+    // chat path's web/server.js#chatOnce (which captures child stdout
+    // as the user-visible reply) does not leak the protocol tag into
+    // the UI. The semantics of the test (one line containing the
+    // finish reason) are unchanged; only the stream we spy on.
+    orig = console.error;
     logs = [];
-    console.log = (...a) => logs.push(a.join(' '));
+    console.error = (...a) => logs.push(a.join(' '));
   });
   afterEach(() => {
-    console.log = orig;
+    console.error = orig;
   });
   test('parseResponse emits finish_reason=stop on OpenAI shape', async () => {
     await make().p.parseResponse(fixture);

@@ -1,5 +1,8 @@
 /**
  * Tests for provider/protocol/_shared.js (V10.2, 2026-06-20).
+ * V45.1: splitThinkBlocks lifted out of openai-compatible-stream.js
+ * so the chat path can reuse it. Added test cases for the shared
+ * helper below.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,6 +13,7 @@ import {
   wrapHttpError,
   makeExtractReasoning,
   joinChatUrl,
+  splitThinkBlocks,
 } from '../provider/protocol/_shared.js';
 
 describe('normalizeBaseUrl', () => {
@@ -133,5 +137,50 @@ describe('joinChatUrl', () => {
   });
   test('returns empty for empty base', () => {
     assert.equal(joinChatUrl('', '/v1/chat/completions'), '');
+  });
+});
+
+// V45.1: splitThinkBlocks was lifted out of openai-compatible-stream.js
+// into _shared.js so the chat path (openai-compatible.js#parseResponseBody)
+// can reuse it. These cases mirror the V45 stream suite (8 cases there
+// already) but exercise the helper in isolation; the stream suite keeps
+// its own end-to-end coverage.
+describe('splitThinkBlocks (V45.1, shared helper)', () => {
+  test('returns empty defaults for non-string / empty / null', () => {
+    for (const v of [null, undefined, '', 0, false, {}]) {
+      const out = splitThinkBlocks(v);
+      assert.equal(out.visible, '');
+      assert.equal(out.reasoning, '');
+    }
+  });
+  test('passes through plain text with no think blocks', () => {
+    const out = splitThinkBlocks('Hello world');
+    assert.equal(out.visible, 'Hello world');
+    assert.equal(out.reasoning, '');
+  });
+  test('strips a single complete <think>...</think> pair', () => {
+    const out = splitThinkBlocks('<think>reasoning here</think>visible answer');
+    assert.equal(out.visible, 'visible answer');
+    assert.equal(out.reasoning, 'reasoning here');
+  });
+  test('strips a think block split across the middle of the reply', () => {
+    const out = splitThinkBlocks('before<think>hidden</think>after');
+    assert.equal(out.visible, 'beforeafter');
+    assert.equal(out.reasoning, 'hidden');
+  });
+  test('treats an unclosed <think> as reasoning (never leaks partial thinking)', () => {
+    const out = splitThinkBlocks('before<think>still thinking');
+    assert.equal(out.visible, 'before');
+    assert.equal(out.reasoning, 'still thinking');
+  });
+  test('handles multiple think blocks in one reply', () => {
+    const out = splitThinkBlocks('A<think>x</think>B<think>y</think>C');
+    assert.equal(out.visible, 'ABC');
+    assert.equal(out.reasoning, 'xy');
+  });
+  test('preserves leading/trailing newlines outside the think block', () => {
+    const out = splitThinkBlocks('\n<think>h\n</think>\nv\n');
+    assert.equal(out.visible, '\n\nv\n');
+    assert.equal(out.reasoning, 'h\n');
   });
 });

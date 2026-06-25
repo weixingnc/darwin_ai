@@ -22,6 +22,7 @@
 
 import { ProtocolBase } from './base.js';
 import { buildToolResultMessage } from './tool-call.js';
+import { splitThinkBlocks } from './_shared.js';
 
 /** v2 plain → OpenAI tools wrapper; pass-through if already OpenAI-shaped. */
 function toOpenAITools(tools) {
@@ -73,8 +74,20 @@ function parseResponseBody(rawResponse) {
   }
   const choice = rawResponse.choices[0] || {};
   const message = choice.message || {};
+  // V45.1: strip <think>...</think> from the chat path too. Before this,
+  // the chat path returned the raw message.content (which on DeepSeek R1 /
+  // Qwen QwQ / GLM Z1 / MiniMax-M3 includes inline thinking text), while
+  // the stream path (openai-compatible-stream.js) was the only place that
+  // stripped them via splitThinkBlocks. The helper now lives in _shared.js
+  // and is reused by both paths. Reasoning is dropped on the chat path
+  // (no chunked stream to surface it on); a future V45.2 can route
+  // message.reasoning_content into usage.reasoning for symmetry with the
+  // stream yield shape.
+  const rawContent =
+    message.content === null || message.content === undefined ? '' : message.content;
+  const split = splitThinkBlocks(rawContent);
   return {
-    content: message.content === null || message.content === undefined ? '' : message.content,
+    content: split.visible,
     tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
     usage: rawResponse.usage && typeof rawResponse.usage === 'object' ? rawResponse.usage : {},
     finish_reason:
@@ -84,13 +97,21 @@ function parseResponseBody(rawResponse) {
   };
 }
 
-/** Emit finish_reason / stop_reason log per v1 fix #5/#6. Never throws. */
+/** Emit finish_reason / stop_reason log per v1 fix #5/#6. Never throws.
+ *  V45.1: routed to stderr (console.error) instead of stdout. Before this,
+ *  the chat path emitted `[openai-compatible] finish_reason=stop` on
+ *  stdout, and web/server.js#chatOnce captured the full child stdout as
+ *  the user-visible reply -- leaking the protocol tag into the UI. The
+ *  CLI repl/repl-printing callers and the bin/darwin chat banner path
+ *  (which also writes the provider name) still work: stderr is reserved
+ *  for logs. The webhook path and SSE path were never affected (they
+ *  consume line-protocol or SSE frames, not raw stdout). */
 function logFinishOrStop(finishReason, opts = {}) {
   try {
     const r =
       finishReason === null || finishReason === undefined ? 'unknown' : String(finishReason);
     const tag = opts && opts.anthropic ? 'stop_reason' : 'finish_reason';
-    console.log(`[openai-compatible] ${tag}=${r}`);
+    console.error(`[openai-compatible] ${tag}=${r}`);
   } catch {
     /* never throw */
   }

@@ -103,8 +103,13 @@ export async function chat(argv = []) {
     return EXIT_OK;
   }
 
-  // Default mode: banner + full reply (V23 behavior).
-  console.log(`\u{1F916} Using ${provider.name}\n`);
+  // Default mode: provider name banner (V45.1: now on stderr) + full
+  // reply. Before V45.1 the banner was on stdout, which meant
+  // web/server.js#chatOnce (which captures the full child stdout as the
+  // user-visible reply) leaked `🤖 Using openai-compatible\n` into the
+  // UI. stderr is the right place for operator-visible logs; stdout is
+  // reserved for the user-visible content.
+  console.error(`\u{1F916} Using ${provider.name}`);
 
   const { systemMessages } = await loadContext({ memory, historyMessages: [] });
   const fullMessages = [...systemMessages, { role: 'user', content: text }];
@@ -116,8 +121,40 @@ export async function chat(argv = []) {
     process.exit(EXIT_CHAT_FAIL);
   }
 
-  console.log(r.value.content);
+  // V45.1: process.stdout.write (not console.log) so the reply is
+  // emitted verbatim without a leading 'undefined' or extra wrapping.
+  // A trailing \n keeps POSIX-friendly line discipline for shell pipes.
+  process.stdout.write(r.value.content + '\n');
   return EXIT_OK;
+}
+
+/**
+ * V45.1: emit a single chunk line for the current accumulated visible
+ * content, comparing against `lastContent` and emitting only the delta.
+ * Returns the new lastContent. The text is JSON-encoded so any embedded
+ * \n survives a single-line frame intact (web/server.js#streamChat
+ * decodes the same way). Extracted from streamChat to keep the parent
+ * function under the ESLint complexity=15 cap.
+ *
+ * Edge case: when ev.content shrank (e.g. a <think> block just closed
+ * and stripped the leading reasoning), the protocol's accumulator
+ * effectively rewinds; we re-baseline lastContent to the new value
+ * without emitting so the next non-shrinking delta goes through
+ * normally.
+ */
+function emitContentDelta(lastContent, ev) {
+  if (typeof ev.content !== 'string' || ev.content.length === 0) {
+    return lastContent;
+  }
+  if (ev.content.length > lastContent.length) {
+    const delta = ev.content.slice(lastContent.length);
+    if (delta.length > 0) {
+      process.stdout.write('chunk:' + JSON.stringify(delta) + '\n');
+    }
+    return ev.content;
+  }
+  // Shrink: just re-baseline, no emit.
+  return ev.content;
 }
 
 async function streamChat(provider, memory, text) {
@@ -139,6 +176,7 @@ async function streamChat(provider, memory, text) {
   }
 
   let hadError = false;
+  let lastContent = '';
   try {
     for await (const ev of provider.stream(fullMessages)) {
       if (!ev) {
@@ -153,12 +191,11 @@ async function streamChat(provider, memory, text) {
         process.stdout.write('error:' + msg + '\n');
         break;
       }
-      // Snapshot event: { content, toolCalls, finishReason, raw }
-      // We emit the accumulated content as one chunk per snapshot.
-      // The browser will dedupe / smooth via the SSE event stream.
-      if (typeof ev.content === 'string' && ev.content.length > 0) {
-        process.stdout.write('chunk:' + ev.content + '\n');
-      }
+      // Snapshot event (V45 contract): { content, reasoning, toolCalls,
+      // finishReason, raw }. Emit the delta vs the previously-seen
+      // visible content. Reasoning is not surfaced here -- wire shape
+      // is stable across V45, no consumer reads it yet.
+      lastContent = emitContentDelta(lastContent, ev);
     }
   } catch (e) {
     hadError = true;
