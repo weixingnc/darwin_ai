@@ -404,7 +404,12 @@
         },
       };
     }
-    async function parseSseStream(body) {
+    // V44.3: NOTE -- must NOT be `async function`. An `async`
+    // declaration wraps the return value in a Promise, and the
+    // caller does `sse.next()` which would then throw
+    // "sse.next is not a function". The function body has no
+    // top-level await, so the return is the plain iterator.
+    function parseSseStream(body) {
       const reader = body.getReader();
       const dec = new TextDecoder();
       let buf = '';
