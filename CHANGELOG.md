@@ -6,6 +6,76 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 as of v0.2.0 (currently still v0.1.0; v1.0.0 cut deferred to V22 multi-Darwin
 federation -- planned 2026-Q4).
 
+### Fixed (V45.1, 2026-06-25)
+
+- **V45.1 web chat: clean json + real sse deltas + no think leakage**
+  (`fix(web): strip protocol noise, real sse deltas, no think leakage (v45.1)`):
+  V45 made the stream path think-block-aware and reasoning-content-aware,
+  but the chat path and the bin/darwin -> web boundary were not
+  symmetric. V45.1 closes the gap so the web UI shows clean text on
+  every path.
+  - **JSON path** (`POST /api/chat`, `Accept: application/json`):
+    before, the reply string was the _full child stdout_ -- which
+    included the `🤖 Using openai-compatible` banner from
+    `bin/lib/chat.js`, the `[openai-compatible] finish_reason=stop`
+    protocol tag from `provider/protocol/openai-compatible.js`, and
+    any `<think>...</think>` blocks emitted by reasoning models
+    (DeepSeek R1 / Qwen QwQ / GLM Z1 / MiniMax-M3). After V45.1 the
+    reply is just the model content.
+    - `provider/protocol/openai-compatible.js#logFinishOrStop` now
+      writes to stderr (console.error).
+    - `bin/lib/chat.js#chat` moves the `🤖 Using ${provider.name}`
+      banner to stderr too, and uses `process.stdout.write(content + '\n')`
+      for the reply (no `console.log` trailing space).
+    - `provider/protocol/openai-compatible.js#parseResponseBody` now
+      runs `splitThinkBlocks` on `message.content` so reasoning
+      blocks are stripped on the chat path too.
+  - **SSE path** (`POST /api/chat`, `Accept: text/event-stream`):
+    before, the web server forwarded a single `data: {"type":"chunk",
+"text":""}` frame and then `done` -- the model reply never made
+    it to the browser. The root cause: V45's stream protocol emits
+    the _full accumulated visible content_ on every snapshot, but our
+    line protocol treats each `chunk:` frame as additive. The
+    accumulated text starts with `\n\n` on DeepSeek R1, and the web
+    server's per-`\n` parser split the frame into `"chunk:"`, `""`,
+    and the raw reply text -- only the first line started with
+    `chunk:`, so only the empty frame was forwarded.
+    - `bin/lib/chat.js#streamChat` now emits only the new tail
+      (delta) of each snapshot via a new `emitContentDelta` helper
+      (extracted to keep the parent under the ESLint complexity=15
+      cap).
+    - Chunk text is `JSON.stringify`-encoded so any embedded `\n`
+      in the reply survives a single-line frame intact.
+    - `web/server.js#streamChat` decodes the same way (with a
+      fallback to the raw slice on parse failure for older callers).
+    - End-to-end on a real DeepSeek R1 reply:
+      `data: {"type":"chunk","text":"\n2026年最核心"}` ->
+      `data: {"type":"chunk","text":"趋势是AI智能体..."}` ->
+      `data: {"type":"done"}` (incremental, two frames, no empty
+      frames).
+  - **Shared helper**:
+    `splitThinkBlocks` was lifted out of
+    `provider/protocol/openai-compatible-stream.js` into
+    `provider/protocol/_shared.js` so the chat path and the stream
+    path share the same implementation. The stream path now imports
+    it from `_shared.js`; no behaviour change for stream consumers.
+  - 4 files changed (+130, -30), 3 test files changed (+91, -22).
+  - **Hard-boundary note**: `provider/*` is on the productization
+    brief red list. This commit touches `openai-compatible.js`,
+    `_shared.js`, and `openai-compatible-stream.js`, following the
+    V45 precedent ("the user explicitly chose option C (fix the
+    provider) on the bug, so the boundary is intentionally broken
+    here"). Authorised by the 12h autonomous box the user opened
+    2026-06-25 ~22:50 ("接下来到明天早上8点，你自主开发，实现大模型
+    WEBUI的正常对话").
+  - 1360 -> 1381 npm test pass (+21: 7 splitThinkBlocks cases in
+    `tests/provider-protocol-shared.test.js`, 2 chat-path
+    think-strip cases in `tests/openai-compatible-protocol.test.js`,
+    plus the 2 V1 fix #5/#6 tests in the same file updated to spy on
+    `console.error` instead of `console.log` -- the log stream
+    moved, test semantics are unchanged). ESLint clean. Size check
+    clean.
+
 ### Added (V43, 2026-06-23)
 
 - **V43 web UI: settings panel + conversation history**
