@@ -300,6 +300,22 @@ function streamChat(res, message) {
         if (typeof text === 'string' && text.length > 0) {
           sendFrame({ type: 'chunk', text });
         }
+      } else if (line.startsWith('reasoning:')) {
+        // V46: separate reasoning channel for the collapsible thinking
+        // panel. Same JSON-encoded line shape as chunk:. Empty strings
+        // are dropped (model may emit a placeholder reasoning frame for
+        // non-reasoning models and we don't want a flicker of an empty
+        // panel).
+        const encoded = line.slice('reasoning:'.length);
+        let text = encoded;
+        try {
+          text = JSON.parse(encoded);
+        } catch (_) {
+          /* keep raw slice */
+        }
+        if (typeof text === 'string' && text.length > 0) {
+          sendFrame({ type: 'reasoning', text });
+        }
       } else if (line === 'done:') {
         sendFrame({ type: 'done' });
         finish();

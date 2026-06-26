@@ -157,6 +157,32 @@ function emitContentDelta(lastContent, ev) {
   return ev.content;
 }
 
+/**
+ * V46: same shape as emitContentDelta but for the reasoning channel.
+ * Emits a separate "reasoning:<json>" line so the web layer can render
+ * it as a collapsible thinking panel (Cursor / ChatGPT style). Reasoning
+ * arrives from two sources on OpenAI-compatible R1-family models:
+ *   1. delta.reasoning_content (API-level side field, see V45 commit)
+ *   2. inline <think>...</think> in delta.content, peeled out by
+ *      splitThinkBlocks and accumulated in state.reasoning
+ * Both are summed in ev.reasoning and emitted as one delta stream here.
+ * Returns the new lastReasoning baseline.
+ */
+function emitReasoningDelta(lastReasoning, ev) {
+  if (typeof ev.reasoning !== 'string' || ev.reasoning.length === 0) {
+    return lastReasoning;
+  }
+  if (ev.reasoning.length > lastReasoning.length) {
+    const delta = ev.reasoning.slice(lastReasoning.length);
+    if (delta.length > 0) {
+      process.stdout.write('reasoning:' + JSON.stringify(delta) + '\n');
+    }
+    return ev.reasoning;
+  }
+  // Shrink: re-baseline only.
+  return ev.reasoning;
+}
+
 async function streamChat(provider, memory, text) {
   const { systemMessages } = await loadContext({ memory, historyMessages: [] });
   const fullMessages = [...systemMessages, { role: 'user', content: text }];
@@ -177,6 +203,7 @@ async function streamChat(provider, memory, text) {
 
   let hadError = false;
   let lastContent = '';
+  let lastReasoning = '';
   try {
     for await (const ev of provider.stream(fullMessages)) {
       if (!ev) {
@@ -193,9 +220,10 @@ async function streamChat(provider, memory, text) {
       }
       // Snapshot event (V45 contract): { content, reasoning, toolCalls,
       // finishReason, raw }. Emit the delta vs the previously-seen
-      // visible content. Reasoning is not surfaced here -- wire shape
-      // is stable across V45, no consumer reads it yet.
+      // visible content, plus a separate reasoning channel for the
+      // collapsible thinking panel (V46).
       lastContent = emitContentDelta(lastContent, ev);
+      lastReasoning = emitReasoningDelta(lastReasoning, ev);
     }
   } catch (e) {
     hadError = true;

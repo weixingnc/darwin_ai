@@ -139,6 +139,44 @@
     .msg.assistant { background: var(--panel); max-width: 80%; }
     .msg.error { background: #7f1d1d; color: var(--err); }
     .msg pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; }
+    /* V46: collapsible reasoning panel at the top of every assistant
+       bubble. Hidden by default (.reasoning-empty) and only shown
+       after at least one reasoning frame arrives, so non-reasoning
+       models do not render an empty <details> stub. */
+    details.reasoning-block {
+      margin: 0 0 0.75rem 0;
+      padding: 0.5rem 0.75rem;
+      background: rgba(148, 163, 184, 0.08);
+      border-radius: 0.375rem;
+      border-left: 2px solid var(--muted);
+    }
+    details.reasoning-block[hidden] { display: none; }
+    details.reasoning-block > summary {
+      cursor: pointer;
+      font-size: 0.75rem;
+      color: var(--muted);
+      user-select: none;
+      list-style: none;
+    }
+    details.reasoning-block > summary::-webkit-details-marker { display: none; }
+    details.reasoning-block > summary::before {
+      content: '▸ ';
+      display: inline-block;
+      transition: transform 120ms ease;
+    }
+    details.reasoning-block[open] > summary::before { content: '▾ '; }
+    details.reasoning-block[open] > summary { color: var(--fg); }
+    details.reasoning-block > pre {
+      margin: 0.5rem 0 0;
+      padding: 0;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: inherit;
+      max-height: 16rem;
+      overflow-y: auto;
+    }
     .caret::after { content: '\2588'; display: inline-block; color: var(--accent); margin-left: 1px; animation: blink 1s steps(2, start) infinite; }
     @keyframes blink { to { visibility: hidden; } }
     form.composer {
@@ -365,9 +403,28 @@
     }
 
     // ----- V32: streaming chat -----
+    // V46: assistant messages now carry an optional collapsible
+    // <details> reasoning panel at the top. The panel is rendered
+    // hidden by default (the `[hidden]` attribute) and only revealed
+    // when the first reasoning frame arrives. Non-reasoning models
+    // never produce reasoning frames, so the panel stays hidden and
+    // no empty <details> stub ships to the DOM.
     function appendMsg(role, text) {
       const div = document.createElement('div');
       div.className = 'msg ' + role;
+      if (role === 'assistant') {
+        const details = document.createElement('details');
+        details.className = 'reasoning-block';
+        details.hidden = true;
+        const summary = document.createElement('summary');
+        summary.textContent = 'Reasoning';
+        const reasoningPre = document.createElement('pre');
+        details.appendChild(summary);
+        details.appendChild(reasoningPre);
+        div.appendChild(details);
+        div._reasoningBlock = details;
+        div._reasoningPre = reasoningPre;
+      }
       const pre = document.createElement('pre');
       pre.textContent = text || '';
       div.appendChild(pre);
@@ -379,15 +436,33 @@
     function startAssistantMsg() {
       const { div, pre } = appendMsg('assistant', '');
       setCaret(pre, true);
+      // V46: accumulator for the reasoning channel so we can also
+      // persist it on conversation.message.reasoning when the stream
+      // finishes.
+      let reasoningText = '';
       return {
         append(text) {
           pre.textContent += text;
           messagesEl.scrollTop = messagesEl.scrollHeight;
         },
+        setReasoning(text) {
+          reasoningText += text;
+          if (div._reasoningBlock) {
+            div._reasoningBlock.hidden = false;
+            if (div._reasoningPre) {
+              div._reasoningPre.textContent = reasoningText;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+          }
+        },
         finish() {
           setCaret(pre, false);
           if (currentConv) {
-            appendMessage(currentConv, { role: 'assistant', text: pre.textContent });
+            const msg = { role: 'assistant', text: pre.textContent };
+            if (reasoningText) {
+              msg.reasoning = reasoningText;
+            }
+            appendMessage(currentConv, msg);
             putConversation(currentConv);
             renderConversationList();
           }
@@ -479,7 +554,20 @@
           const frame = await sse.next();
           if (!frame || frame.type === '__done__') break;
           if (frame.type === 'chunk') stream.append(frame.text || '');
-          else if (frame.type === 'done') { finished = true; break; }
+          else if (frame.type === 'reasoning') stream.setReasoning(frame.text || '');
+          // V46: bug fix -- the V32 streaming code set `finished = true`
+          // on the `done` frame and broke out of the loop, but never
+          // called `stream.finish()`. finish() is what appends the
+          // assistant message to the conversation and writes the conv
+          // back to localStorage, so V32-V45.1 conversations only ever
+          // persisted the user message (the title, derived from the
+          // first user msg, was saved, but the assistant reply was
+          // not). With V46 we also persist a reasoning field on the
+          // assistant message -- so the bug is now actively visible
+          // (reasoning was correctly in-memory but never made it to
+          // localStorage). Call finish() here so the assistant
+          // message + reasoning are persisted on every normal path.
+          else if (frame.type === 'done') { stream.finish(); finished = true; break; }
           else if (frame.type === 'error') { stream.fail(frame.error || 'stream error'); finished = true; break; }
         }
         if (!finished) stream.finish();
@@ -589,7 +677,18 @@
         return;
       }
       for (const m of conv.messages) {
-        appendMsg(m.role, m.text);
+        const { div } = appendMsg(m.role, m.text || '');
+        // V46: re-populate the reasoning block for messages that have
+        // persisted reasoning (V46+ conversations). Older V43-V45.1
+        // messages do not have the field and render with the panel
+        // hidden, which is the correct behaviour for non-reasoning
+        // models and the V43-V45.1 era.
+        if (m.role === 'assistant' && m.reasoning && div._reasoningPre) {
+          div._reasoningPre.textContent = m.reasoning;
+          if (div._reasoningBlock) {
+            div._reasoningBlock.hidden = false;
+          }
+        }
       }
     }
     newChatBtn.addEventListener('click', () => {
