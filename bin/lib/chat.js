@@ -325,7 +325,15 @@ async function streamChat(provider, memory, messages) {
 // V47: exported for unit tests so we can drive parseChatFlags /
 // resolveMessages without spawning the bin/darwin child. Internal
 // callers in this module use the same surfaces directly.
+//
+// B2 (coverage push): also exports the V45.1/V46 emit helpers and
+// streamChat itself so tests can exercise the streaming code paths
+// (chunk deltas, shrink re-baseline, reasoning channel, done/error
+// branches, missing provider.stream() fallback) without spawning.
 export const _internal = {
   parseChatFlags,
   resolveMessages,
+  emitContentDelta,
+  emitReasoningDelta,
+  streamChat,
 };

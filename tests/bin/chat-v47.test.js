@@ -245,3 +245,223 @@ describe('chat V47: chat() argv smoke', () => {
     }
   });
 });
+
+// B2 (coverage push): drive the V45.1/V46 streaming helpers directly
+// so the bulk of streamChat (lines 264-323) is exercised. We capture
+// process.stdout.write to assert the line-prefix protocol:
+//   "chunk:<json>"   content delta
+//   "reasoning:<json>"  V46 reasoning channel
+//   "done:"          stream finished
+//   "error:<msg>"    stream errored
+describe('chat V47+45.1+46: streamChat direct (B2 coverage)', () => {
+  const { emitContentDelta, emitReasoningDelta, streamChat } = _internal;
+
+  function captureStdout(fn) {
+    const captured = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk, ...rest) => {
+      captured.push(String(chunk));
+      return origWrite(chunk, ...rest);
+    };
+    const exitCalls = [];
+    const origExit = process.exit;
+    process.exit = (code) => {
+      exitCalls.push(code);
+      // Don't actually exit the test runner.
+      throw new Error('__exit__:' + code);
+    };
+    return Promise.resolve()
+      .then(fn)
+      .then(
+        () => {
+          process.stdout.write = origWrite;
+          process.exit = origExit;
+          return { captured, exitCalls };
+        },
+        (e) => {
+          process.stdout.write = origWrite;
+          process.exit = origExit;
+          if (e && typeof e.message === 'string' && e.message.startsWith('__exit__:')) {
+            // Error message is '__exit__:<code>' — skip the 9-char
+            // prefix to extract the exit code as a number.
+            return { captured, exitCalls: [Number(e.message.slice(9))] };
+          }
+          throw e;
+        },
+      );
+  }
+
+  test('emitContentDelta: grow emits the delta JSON-encoded', () => {
+    const captured = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => captured.push(String(chunk));
+    try {
+      const next = emitContentDelta('', { content: 'hello' });
+      assert.equal(next, 'hello');
+      const next2 = emitContentDelta('hello', { content: 'hello world' });
+      assert.equal(next2, 'hello world');
+    } finally {
+      process.stdout.write = orig;
+    }
+    assert.deepEqual(captured, ['chunk:"hello"\n', 'chunk:" world"\n']);
+  });
+
+  test('emitContentDelta: empty / non-string content does nothing', () => {
+    const captured = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => captured.push(String(chunk));
+    try {
+      assert.equal(emitContentDelta('x', { content: '' }), 'x');
+      assert.equal(emitContentDelta('x', { content: 123 }), 'x');
+      assert.equal(emitContentDelta('x', {}), 'x');
+    } finally {
+      process.stdout.write = orig;
+    }
+    assert.deepEqual(captured, []);
+  });
+
+  test('emitContentDelta: shrink re-baselines without emitting', () => {
+    const captured = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => captured.push(String(chunk));
+    try {
+      // V45 protocol rewinds after stripping a <think> block -- the
+      // new accumulated content is shorter than lastContent. We must
+      // NOT emit the negative delta; we just take the new baseline.
+      const next = emitContentDelta('<think>long reasoning</think>hi', { content: 'hi' });
+      assert.equal(next, 'hi');
+    } finally {
+      process.stdout.write = orig;
+    }
+    assert.deepEqual(captured, []);
+  });
+
+  test('emitReasoningDelta: same shape as content delta', () => {
+    const captured = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => captured.push(String(chunk));
+    try {
+      emitReasoningDelta('', { reasoning: 'step 1' });
+      emitReasoningDelta('step 1', { reasoning: 'step 1 + step 2' });
+      emitReasoningDelta('step 1 + step 2', { reasoning: 'shrunk' });
+      emitReasoningDelta('shrunk', { reasoning: '' });
+      emitReasoningDelta('shrunk', {});
+    } finally {
+      process.stdout.write = orig;
+    }
+    // Shrink re-baselines without emitting (line 261); empty / missing
+    // reasoning does nothing. The new baseline still wins, just silently.
+    assert.deepEqual(captured, ['reasoning:"step 1"\n', 'reasoning:" + step 2"\n']);
+  });
+
+  // Minimal memory stub: loadContext() (called by streamChat) checks
+  // memory.list/get and reads PERSONALITY_KEY. Returning empty values
+  // for both is enough to keep the loader happy without touching disk.
+  function fakeMemory() {
+    return {
+      async list(_prefix) {
+        return [];
+      },
+      async get(_key) {
+        return null;
+      },
+    };
+  }
+
+  test('streamChat with provider.stream() — emits chunk + done lines', async () => {
+    async function* fakeStream() {
+      yield { type: 'chunk', content: 'hello' };
+      yield { type: 'chunk', content: 'hello world' };
+      yield { type: 'done' };
+    }
+    const memory = fakeMemory();
+    const fakeProvider = {
+      name: 'mock',
+      stream: fakeStream,
+    };
+    const { captured, exitCalls } = await captureStdout(() =>
+      streamChat(fakeProvider, memory, [{ role: 'user', content: 'hi' }]),
+    );
+    assert.deepEqual(captured, ['chunk:"hello"\n', 'chunk:" world"\n', 'done:\n']);
+    assert.deepEqual(exitCalls, []);
+  });
+
+  test('streamChat with provider.stream() error event → error: line + exit', async () => {
+    async function* fakeStream() {
+      yield { type: 'chunk', content: 'partial' };
+      yield { type: 'error', error: { message: 'upstream 500' } };
+    }
+    const fakeProvider = { name: 'mock', stream: fakeStream };
+    const { captured, exitCalls } = await captureStdout(() =>
+      streamChat(fakeProvider, fakeMemory(), [{ role: 'user', content: 'hi' }]),
+    );
+    assert.ok(
+      captured.some((l) => l.startsWith('chunk:')),
+      'should emit at least one chunk line',
+    );
+    assert.ok(
+      captured.some((l) => l.startsWith('error:upstream 500')),
+      'should emit error line, got: ' + JSON.stringify(captured),
+    );
+    assert.deepEqual(exitCalls, [3]);
+  });
+
+  test('streamChat with provider.stream() throws → caught + error: line + exit', async () => {
+    async function* fakeStream() {
+      yield { type: 'chunk', content: 'a' };
+      throw new Error('stream blew up');
+    }
+    const fakeProvider = { name: 'mock', stream: fakeStream };
+    const { captured, exitCalls } = await captureStdout(() =>
+      streamChat(fakeProvider, fakeMemory(), [{ role: 'user', content: 'hi' }]),
+    );
+    assert.ok(captured.some((l) => l.startsWith('error:stream blew up')));
+    assert.deepEqual(exitCalls, [3]);
+  });
+
+  test('streamChat falls back to provider.chat when stream() missing', async () => {
+    const fakeProvider = {
+      name: 'mock-no-stream',
+      async chat(_messages) {
+        return { ok: true, value: { content: 'full reply' } };
+      },
+    };
+    const { captured, exitCalls } = await captureStdout(() =>
+      streamChat(fakeProvider, fakeMemory(), [{ role: 'user', content: 'hi' }]),
+    );
+    assert.deepEqual(captured, ['chunk:full reply\n', 'done:\n']);
+    assert.deepEqual(exitCalls, []);
+  });
+
+  test('streamChat falls back to provider.chat error path → error: + exit', async () => {
+    const fakeProvider = {
+      name: 'mock-no-stream-fail',
+      async chat(_messages) {
+        return { ok: false, error: { message: 'no key' } };
+      },
+    };
+    const { captured, exitCalls } = await captureStdout(() =>
+      streamChat(fakeProvider, fakeMemory(), [{ role: 'user', content: 'hi' }]),
+    );
+    assert.deepEqual(captured, ['error:no key\n']);
+    assert.deepEqual(exitCalls, [3]);
+  });
+
+  test('streamChat multi-turn: provider receives full messages (legacy string form still wraps)', async () => {
+    let receivedMessages = null;
+    async function* fakeStream(messages) {
+      receivedMessages = messages;
+      yield { type: 'chunk', content: 'ok' };
+      yield { type: 'done' };
+    }
+    const fakeProvider = { name: 'mock', stream: fakeStream };
+    await captureStdout(() => streamChat(fakeProvider, fakeMemory(), 'legacy string arg'));
+    // Legacy string form is wrapped to a single-user turn; the provider
+    // sees [{role:'user', content:'legacy string arg'}] plus whatever
+    // loadContext() adds (system prompt -- empty in this minimal fake).
+    assert.ok(receivedMessages, 'provider.stream() must have been called');
+    const lastUser = receivedMessages[receivedMessages.length - 1];
+    assert.equal(lastUser.role, 'user');
+    assert.equal(lastUser.content, 'legacy string arg');
+  });
+});
