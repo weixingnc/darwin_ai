@@ -33,7 +33,7 @@
  * an HTTP probe, not an LLM round-trip.
  */
 
-import { ConfigManager, VENDOR_SCHEMA } from '../core/config-manager.js';
+import { ConfigManager, VENDOR_SCHEMA } from './config-manager.js';
 
 // V43: build a fresh manager for each request. We do not memoize
 // because the user can be editing the yaml on disk in another

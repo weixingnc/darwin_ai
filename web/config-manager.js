@@ -46,7 +46,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { ConfigResolver } from './config-resolver.js';
+import { ConfigResolver } from '../core/config-resolver.js';
 
 const SECRET_FIELDS = [
   'api_key',
