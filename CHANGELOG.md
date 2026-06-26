@@ -6,6 +6,76 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 as of v0.2.0 (currently still v0.1.0; v1.0.0 cut deferred to V22 multi-Darwin
 federation -- planned 2026-Q4).
 
+### Added (V47, 2026-06-26)
+
+- **V47 multi-turn context** (`feat(web+bin): v47 multi-turn context`):
+  the web UI and `darwin chat` CLI now send the full conversation
+  history to the provider so multi-turn replies are aware of prior
+  turns. Before V47, only the latest user message was forwarded --
+  the provider had no idea what was said two messages ago. After V47,
+  the provider sees the whole conversation in `messages[]` form.
+  - **API surface** (`web/server.js#handlePostChat`):
+    `POST /api/chat` accepts either
+    `{messages: [{role, content}, ...]}` (V47, multi-turn) or
+    `{message: "single string"}` (V45.1, legacy single-turn).
+    The legacy shape is wrapped into a single-user turn so all
+    existing callers keep working. Validation rejects empty arrays,
+    bad roles (anything outside `system|user|assistant|tool`), and
+    non-tool turns with empty `content`.
+  - **CLI flag** (`bin/lib/chat.js`):
+    `darwin chat --messages '<json>'` accepts the same shape.
+    Backward compat: positional `darwin chat "hi"` still works.
+    `parseChatFlags` / `resolveMessages` / `normalizeTurn` /
+    `parseMessagesJson` split the parse + validate surface so each
+    function stays under the ESLint complexity=15 cap.
+  - **Stream path** (`bin/lib/chat.js#streamChat`):
+    `streamChat(provider, memory, messages)` accepts an array
+    (V47+) or a string (V45.1 wrapped). `loadContext` is fed the
+    pre-last-turn slice as `historyMessages` so the system prompt
+    can weave prior assistant replies into memory context.
+  - **Web UI** (`web/index.html#sendMessage`):
+    sends `conv.messages` mapped to `{role, content}` (storage keeps
+    `.text`; the provider wants `.content`). Reasoning fields are
+    intentionally NOT echoed back -- they're an internal trace the
+    user already saw in the V46 collapsible panel.
+  - **End-to-end verified**: browser smoke test confirms the
+    provider sees prior turns:
+    - turn 1: `my favorite fruit is mango`
+    - turn 2: `what is my favorite fruit? answer in one word`
+    - reply: `🥭` (provider correctly retrieved the prior context)
+  - **25 new tests**: 14 in `tests/bin/chat-v47.test.js`
+    (parseChatFlags / resolveMessages / argv smoke) and 5 in
+    `web/server.test.js` (validation paths + multi-turn SSE).
+    1381 -> 1406 tests pass.
+
+### Changed (V47 + B2, 2026-06-26)
+
+- **Coverage push: 89.93% -> 90.47%** (`test(coverage): push chat.js
+69% -> 96% + watcher teardown paths`):
+  - `bin/lib/chat.js` exports `emitContentDelta`, `emitReasoningDelta`,
+    and `streamChat` via the `_internal` surface (mirrors the existing
+    V47 `parseChatFlags` / `resolveMessages` pattern). The bulk of
+    `streamChat` was previously uncovered because it only ran inside
+    `bin/darwin chat --stream` child processes -- now exercised
+    directly with mock providers.
+  - **10 new chat-stream tests** covering:
+    - `emitContentDelta` grow / shrink / empty / non-string branches
+    - `emitReasoningDelta` shrink re-baseline (no emit, just baseline)
+    - `streamChat` with `provider.stream()` success + error event +
+      thrown iterator
+    - `streamChat` fallback to `provider.chat` when `stream()` missing
+    - `streamChat` multi-turn: provider receives the full messages array
+  - **4 new plugin/watcher tests** covering:
+    - `reloadPlugin` full ENABLED cycle through `teardownOld`
+    - `reloadPlugin` with `.js` file missing after delete
+      (`action: unloaded`)
+    - `reloadPlugin` with failed `enable` step (`ok:false` surface)
+    - `reloadPlugin` when `disable` step throws (best-effort, non-fatal)
+  - Coverage delta: `chat.js` 69.48% -> **95.57%**, plugin/watcher
+    69.1% -> ~85%. Statement coverage 89.93% -> **90.47%** (crossed
+    the 90% red line), branches 81.09% -> 81.30%, functions
+    93.10% -> **93.60%**. Tests 1406 -> **1420**.
+
 ### Added (V46, 2026-06-25)
 
 - **V46 collapsible reasoning panel + V32 persistence bug fix**
