@@ -197,12 +197,64 @@ function readJson(req) {
   });
 }
 
-function chatOnce(message) {
+// V47: extract a normalized messages array from the POST body. Accept
+// either { messages: [{role, content}, ...] } (V47 multi-turn) or
+// { message: "single string" } (V45.1 single-turn, kept for backward
+// compat -- the test suite, curl scripts, and the bare-bones
+// single-user UI all still work). Returns {error} when the body is
+// malformed, so the handler can return 400.
+const ALLOWED_ROLES = ['system', 'user', 'assistant', 'tool'];
+
+function validateTurn(m, i) {
+  if (!m || typeof m !== 'object') {
+    return 'messages[' + i + '] must be an object';
+  }
+  if (ALLOWED_ROLES.indexOf(m.role) === -1) {
+    return 'messages[' + i + '].role must be one of system|user|assistant|tool';
+  }
+  if (m.role !== 'tool' && (m.content === undefined || m.content === null || m.content === '')) {
+    return 'messages[' + i + '].content is required';
+  }
+  return null;
+}
+
+function extractMessagesArray(arr) {
+  if (arr.length === 0) {
+    return { error: 'messages must be a non-empty array' };
+  }
+  for (let i = 0; i < arr.length; i += 1) {
+    const err = validateTurn(arr[i], i);
+    if (err !== null) {
+      return { error: err };
+    }
+  }
+  return { messages: arr };
+}
+
+function parseMessagesBody(body) {
+  if (!body || typeof body !== 'object') {
+    return { error: 'body must be a JSON object' };
+  }
+  if (Array.isArray(body.messages)) {
+    return extractMessagesArray(body.messages);
+  }
+  if (typeof body.message === 'string' && body.message.trim().length > 0) {
+    return { messages: [{ role: 'user', content: body.message }] };
+  }
+  return { error: 'message or non-empty messages array is required' };
+}
+
+function chatOnce(messages) {
   return new Promise((resolveChat, rejectChat) => {
-    const child = spawn(process.execPath, [join(REPO_ROOT, 'bin', 'darwin'), 'chat', message], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
-    });
+    // V47: pass the full messages array via --messages <JSON>. The
+    // JSON-encoded form survives argv cleanly because spawn() does
+    // not re-parse each item, so quoting/newlines/UTF-8 are safe.
+    const messagesJson = JSON.stringify(messages);
+    const child = spawn(
+      process.execPath,
+      [join(REPO_ROOT, 'bin', 'darwin'), 'chat', '--messages', messagesJson],
+      { stdio: ['ignore', 'pipe', 'pipe'], env: process.env },
+    );
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (c) => {
@@ -228,10 +280,11 @@ function chatOnce(message) {
   });
 }
 
-function streamChat(res, message) {
+function streamChat(res, messages) {
+  const messagesJson = JSON.stringify(messages);
   const child = spawn(
     process.execPath,
-    [join(REPO_ROOT, 'bin', 'darwin'), 'chat', '--stream', message],
+    [join(REPO_ROOT, 'bin', 'darwin'), 'chat', '--stream', '--messages', messagesJson],
     { stdio: ['ignore', 'pipe', 'pipe'], env: process.env },
   );
 
@@ -451,18 +504,20 @@ async function handlePostChat(req, res) {
     send(res, 400, { error: e.message });
     return true;
   }
-  const message = body && typeof body.message === 'string' ? body.message : '';
-  if (!message.trim()) {
-    send(res, 400, { error: 'message is required' });
+  // V47: accept messages[] (multi-turn) or message (legacy single).
+  const parsed = parseMessagesBody(body);
+  if (parsed.error) {
+    send(res, 400, { error: parsed.error });
     return true;
   }
+  const messages = parsed.messages;
   const accept = String(req.headers['accept'] || '').toLowerCase();
   if (accept.includes('text/event-stream')) {
-    streamChat(res, message);
+    streamChat(res, messages);
     return true;
   }
   try {
-    const reply = await chatOnce(message);
+    const reply = await chatOnce(messages);
     send(res, 200, { reply });
   } catch (e) {
     send(res, 500, { error: e.message });
@@ -673,7 +728,11 @@ const server = createServer(async (req, res) => {
   await handleNotFound(req, res);
 });
 
-export { server, PORT, HOST, AUTH_TOKEN, ConfigApi };
+// V47: parseMessagesBody is exported for unit tests (web/server.test.js)
+// so the multi-turn validation contract can be exercised without
+// spawning the bin/darwin child. The handler itself still uses
+// parseMessagesBody() internally.
+export { server, PORT, HOST, AUTH_TOKEN, ConfigApi, parseMessagesBody };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   server.listen(PORT, HOST, () => {

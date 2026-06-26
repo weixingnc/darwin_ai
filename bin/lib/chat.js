@@ -37,13 +37,21 @@ const EXIT_OK = 0;
 const EXIT_NO_PROVIDER = 2;
 const EXIT_CHAT_FAIL = 3;
 
+// V47: parse chat flags. --messages <JSON> lets callers pass a full
+// multi-turn messages array (V47 forward); the legacy positional
+// `message` arg is still accepted for single-turn callers (web V45.1
+// still uses this path, as does the CLI `darwin chat "hi"` shortcut).
 function parseChatFlags(argv) {
-  const out = { stream: false, help: false, messageParts: [] };
+  const out = { stream: false, help: false, messageParts: [], messagesJson: null };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--help' || a === '-h') {
       out.help = true;
-      continue;
+      // Unix convention: --help short-circuits the rest of the argv
+      // so callers can run `darwin chat --help --stream foo` and still
+      // see the help text. The handler in chat() exits 0 immediately
+      // after seeing help=true.
+      return out;
     }
     if (a === '--stream') {
       out.stream = true;
@@ -53,23 +61,93 @@ function parseChatFlags(argv) {
       out.stream = false;
       continue;
     }
+    if (a === '--messages') {
+      const next = argv[i + 1];
+      if (typeof next !== 'string') {
+        throw new Error('chat: --messages expects a JSON string argument');
+      }
+      out.messagesJson = next;
+      i += 1;
+      continue;
+    }
     out.messageParts.push(a);
   }
   return out;
 }
 
-const HELP = `darwin chat -- single-shot chat (V31, optional --stream)
+// V47: convert the parsed flag bag into a normalized messages array
+// [{role, content}, ...] ready for the provider. Throws on malformed
+// input so the caller (web/server.js or CLI) can surface a 400 / error.
+// Backward compat: if `--messages` is absent, wrap the positional
+// text into a single-user message.
+function normalizeTurn(m, i) {
+  if (!m || typeof m !== 'object') {
+    throw new Error('chat: --messages[' + i + '] is not an object');
+  }
+  const role = m.role;
+  if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') {
+    throw new Error('chat: --messages[' + i + '].role must be one of system|user|assistant|tool');
+  }
+  const content = m.content === null || m.content === undefined ? '' : String(m.content);
+  if (role !== 'tool' && content.length === 0) {
+    throw new Error('chat: --messages[' + i + '].content is required');
+  }
+  const out = { role, content };
+  if (m.name) {
+    out.name = String(m.name);
+  }
+  if (m.tool_call_id) {
+    out.tool_call_id = String(m.tool_call_id);
+  }
+  return out;
+}
+
+function parseMessagesJson(raw) {
+  let arr;
+  try {
+    arr = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('chat: --messages is not valid JSON: ' + e.message);
+  }
+  if (!Array.isArray(arr) || arr.length === 0) {
+    throw new Error('chat: --messages must be a non-empty array');
+  }
+  return arr.map(normalizeTurn);
+}
+
+function resolveMessages(flags) {
+  if (flags.messagesJson !== null) {
+    return parseMessagesJson(flags.messagesJson);
+  }
+  const text = flags.messageParts.join(' ').trim();
+  if (!text) {
+    throw new Error('chat: missing message text. Usage: darwin chat "hello"');
+  }
+  return [{ role: 'user', content: text }];
+}
+
+const HELP = `darwin chat -- single-shot chat (V31, optional --stream; V47 multi-turn)
 
 Usage:
-  darwin chat "hello"               print the full reply, exit 0
-  darwin chat --stream "hello"      print "chunk:<text>" lines + "done:", exit 0
-  darwin chat --help                show this help
+  darwin chat "hello"                          print the full reply, exit 0
+  darwin chat --stream "hello"                 print "chunk:<text>" lines + "done:", exit 0
+  darwin chat --messages '<json>'              multi-turn (V47): array of {role, content}
+  darwin chat --messages '<json>' --stream     multi-turn streamed
+  darwin chat --help                           show this help
 
 The --stream mode is used by web/server.js to forward provider chunks
 to the browser via Server-Sent Events. The line prefix is stable:
   "chunk:<text>\\n"   one or more lines, in arrival order
+  "reasoning:<json>\\n"  V46: separate channel for collapsible thinking panel
   "done:\\n"          exactly one line, just before exit 0
   "error:<msg>\\n"    exactly one line on failure (exit 3)
+
+V47 --messages JSON shape:
+  [{"role":"system","content":"..."},
+   {"role":"user","content":"..."},
+   {"role":"assistant","content":"..."}]
+Roles allowed: system | user | assistant | tool.
+The system prompt from memory is added before your messages.
 `;
 
 export async function chat(argv = []) {
@@ -78,10 +156,7 @@ export async function chat(argv = []) {
     process.stdout.write(HELP);
     return EXIT_OK;
   }
-  const text = flags.messageParts.join(' ').trim();
-  if (!text) {
-    throw new Error('chat: missing message text. Usage: darwin chat "hello"');
-  }
+  const messages = resolveMessages(flags);
 
   const { registry, memory } = await sharedBootstrap();
   if (registry.list().length === 0) {
@@ -99,7 +174,7 @@ export async function chat(argv = []) {
     // Stream mode: no banner (we want each stdout line to be a chunk or
     // a control message). The web UI shows its own provider name in the
     // response metadata.
-    await streamChat(provider, memory, text);
+    await streamChat(provider, memory, messages);
     return EXIT_OK;
   }
 
@@ -111,8 +186,11 @@ export async function chat(argv = []) {
   // reserved for the user-visible content.
   console.error(`\u{1F916} Using ${provider.name}`);
 
-  const { systemMessages } = await loadContext({ memory, historyMessages: [] });
-  const fullMessages = [...systemMessages, { role: 'user', content: text }];
+  // V47: messages is the full turn array (V46 single-user or V47
+  // multi-turn). System prompt is added by streamChat/chatOnce via
+  // loadContext(); here we just call the provider directly.
+  const { systemMessages } = await loadContext({ memory, historyMessages: messages.slice(0, -1) });
+  const fullMessages = [...systemMessages, ...messages];
 
   const r = await provider.chat(fullMessages);
 
@@ -183,9 +261,17 @@ function emitReasoningDelta(lastReasoning, ev) {
   return ev.reasoning;
 }
 
-async function streamChat(provider, memory, text) {
-  const { systemMessages } = await loadContext({ memory, historyMessages: [] });
-  const fullMessages = [...systemMessages, { role: 'user', content: text }];
+async function streamChat(provider, memory, messages) {
+  // V47: messages is now an array of {role, content}; legacy callers
+  // (and tests) can still pass a string, which we wrap as a single
+  // user turn -- the same surface streamChat always exposed.
+  const turns = Array.isArray(messages) ? messages : [{ role: 'user', content: String(messages) }];
+  // V47: pass everything before the last user turn as history so
+  // loadContext() can weave prior assistant replies into the system
+  // context (memory layer is aware of history turns).
+  const historyMessages = turns.length > 1 ? turns.slice(0, -1) : [];
+  const { systemMessages } = await loadContext({ memory, historyMessages });
+  const fullMessages = [...systemMessages, ...turns];
 
   // ProviderBase.stream() may not be implemented by every provider; we
   // fall back to chat() and emit the full reply as a single chunk, so
@@ -235,3 +321,11 @@ async function streamChat(provider, memory, text) {
   }
   process.stdout.write('done:\n');
 }
+
+// V47: exported for unit tests so we can drive parseChatFlags /
+// resolveMessages without spawning the bin/darwin child. Internal
+// callers in this module use the same surfaces directly.
+export const _internal = {
+  parseChatFlags,
+  resolveMessages,
+};

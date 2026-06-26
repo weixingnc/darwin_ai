@@ -126,7 +126,11 @@ describe('web/server (V28) — zero-dep HTTP layer', () => {
     const r = await http('POST', '/api/chat', {});
     assert.equal(r.status, 400);
     const j = await r.json();
-    assert.match(j.error, /message is required/);
+    // V47: error wording now mentions both the legacy `message` and the
+    // V47 `messages` array. The test guards the contract -- both terms
+    // must be surfaced so callers (curl, the boot probe, the web UI)
+    // see a meaningful error.
+    assert.match(j.error, /message or non-empty messages array is required/);
   });
 
   test('POST /api/chat with empty message returns 400', async () => {
@@ -248,6 +252,108 @@ describe('web/server (V31) — Server-Sent Events for /api/chat', () => {
     );
     const j = await r.json();
     assert.ok(j.error, 'JSON path should return { error: ... }, got: ' + JSON.stringify(j));
+  });
+});
+
+// V47: multi-turn context. The web UI sends the full messages array
+// (currentConv.messages) so the provider can see prior turns. The
+// legacy {message: "..."} body is preserved (handled by the tests
+// above) but V47+ callers use {messages: [{role, content}, ...]}.
+describe('web/server (V47) — multi-turn messages[]', () => {
+  test('POST /api/chat with valid messages array passes validation', async () => {
+    // With no provider configured, the request still gets past
+    // validation and the spawn fails with 500 -- that proves the
+    // body parser accepted the messages[] shape.
+    const r = await fetch(baseUrl + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'reply' },
+          { role: 'user', content: 'second' },
+        ],
+      }),
+    });
+    // No provider => spawn fails => 500 (matches the legacy single-
+    // turn behaviour). Validation already passed.
+    assert.equal(r.status, 500);
+    const j = await r.json();
+    assert.ok(j.error, 'should return {error: ...}, got: ' + JSON.stringify(j));
+  });
+
+  test('POST /api/chat with empty messages array returns 400', async () => {
+    const r = await fetch(baseUrl + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [] }),
+    });
+    assert.equal(r.status, 400);
+    const j = await r.json();
+    assert.match(j.error, /messages must be a non-empty array/);
+  });
+
+  test('POST /api/chat with messages array containing bad role returns 400', async () => {
+    const r = await fetch(baseUrl + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'pirate', content: 'arrr' }],
+      }),
+    });
+    assert.equal(r.status, 400);
+    const j = await r.json();
+    assert.match(j.error, /messages\[0\]\.role/);
+  });
+
+  test('POST /api/chat with messages array missing content returns 400', async () => {
+    const r = await fetch(baseUrl + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user' }],
+      }),
+    });
+    assert.equal(r.status, 400);
+    const j = await r.json();
+    assert.match(j.error, /content is required/);
+  });
+
+  test('SSE path with messages array returns 200 + error frame (no provider)', async () => {
+    const r = await fetch(baseUrl + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'hi' },
+          { role: 'user', content: 'second' },
+        ],
+      }),
+    });
+    assert.equal(r.status, 200);
+    // Inline SSE frame parser (readSseFrames is scoped to the V31
+    // describe above). We only need to confirm an `error` frame is
+    // emitted when the spawn has no provider configured.
+    const text = await r.text();
+    const frames = [];
+    for (const block of text.split('\n\n')) {
+      const line = block.trim();
+      if (!line) {
+        continue;
+      }
+      const m = line.match(/^data:\s*(.*)$/);
+      if (!m) {
+        continue;
+      }
+      try {
+        frames.push(JSON.parse(m[1]));
+      } catch {
+        /* skip malformed */
+      }
+    }
+    const errFrame = frames.find((f) => f.type === 'error');
+    assert.ok(errFrame, 'expected error frame in SSE stream, got: ' + JSON.stringify(frames));
   });
 });
 

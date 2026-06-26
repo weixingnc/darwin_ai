@@ -535,11 +535,21 @@
       const ac = new AbortController();
       activeStream = { abort: () => ac.abort() };
       let finished = false;
+      // V47: send the full conversation history (including the user
+      // message we just appended) as a messages array so the provider
+      // can see prior turns and reply in context. storage.js keeps the
+      // user-visible text on `.text`; the provider wants `.content`.
+      // Assistant messages may carry a V46 `.reasoning` field -- we
+      // intentionally do NOT echo that back (it's an internal trace
+      // the user already saw in the collapsible panel).
+      const history = currentConv.messages
+        .filter((m) => m && (m.role === 'user' || m.role === 'assistant' || m.role === 'system'))
+        .map((m) => ({ role: m.role, content: String(m.text || '') }));
       try {
         const r = await authedFetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({ messages: history }),
           signal: ac.signal,
         });
         if (!r.ok) {
@@ -925,7 +935,7 @@
         const r = await authedFetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: '' }),
+          body: JSON.stringify({ messages: [{ role: 'user', content: '.' }] }),
         });
         if (r.status === 401) { showLogin('saved token rejected -- paste the new one'); return; }
         showChat();
