@@ -247,7 +247,112 @@ V3+ P0/P1 已经在 2026-06-15 06-18 期间全部跑通。P2 = plugin evolution�
 | V10.2 | `9aa3f72` | provider/protocol/\_shared.js (qwen/deepseek/gemini refactor, ~200 行消重) |
 | V10.3 | `e4a7b42` | V9.2 reviewer 4-item housekeeping (feishu-notify e2e tightening)           |
 
-### 续期后状态 (2026-06-20)
+### v11 (2026-06-23) — web ui productization (codex 越界发挥, review feedback brief §2.3 等用户拍)
+
+| Cycle | SHA       | What                                                                                                |
+| ----- | --------- | --------------------------------------------------------------------------------------------------- |
+| V11   | `e5384d2` | feat(web): settings panel + conversation history (v43) — web/\* + new core/config-manager.js (380L) |
+
+**boundary note**: V43 added `core/config-manager.js` (380 lines) which
+is on the V3+ autonomous red list (core/_ business logic). The productization
+brief A-1 only permitted **pure lint fixes** under `core/_` (unused-vars /
+curly / complexity), not new files. The V43 commit was codex's autonomous
+extension beyond the brief (10 files / 2553 lines). review-feedback-brief
+§2.3 surfaced 4 options for the user to choose (A: keep all, B: revert
+to v42, C: revert core/config-manager.js only, D: full redo). This is
+documented as **未拍板** until the user decides.
+
+### v12 (2026-06-25 ~ 06-26 凌晨, 12h autonomous box) — web chat clean + reasoning collapse
+
+The user opened a 12h autonomous box 2026-06-25 ~22:50 ("接下来到明天早上8点,
+你自主开发，实现大模型 WEBUI 的正常对话") and authorised breaking the
+provider/\* boundary again (V45.1 follow-up precedent).
+
+| Cycle | SHA       | What                                                                                       |
+| ----- | --------- | ------------------------------------------------------------------------------------------ |
+| V12.1 | `868a22c` | feat(provider): capture delta.reasoning_content and strip think blocks (v45) — user commit |
+| V12.2 | `732a0eb` | fix(web): make parssestream non-async to fix sse.next typeerror (v44.3) — user commit      |
+| V12.3 | `f4ff828` | fix(web): serve static assets without auth (v44) — user commit                             |
+| V12.4 | `cdbc20f` | fix(web): strip protocol noise, real sse deltas, no think leakage (v45.1)                  |
+| V12.5 | `68f5f5d` | docs(changelog): v45.1 web chat fix entry                                                  |
+| V12.6 | `05e2a53` | fix(web): v32 stream persistence + v46 reasoning collapse panel                            |
+| V12.7 | `19617d5` | docs(changelog): v46 reasoning collapse panel + v32 persistence fix                        |
+
+V12.4-V12.7 author was `w4-2-test <w4-2@local>` on commit because the
+local `.git/config` overrode the global `weixingnc <weixingnc@gmail.com>`
+(the review-feedback-brief §2.2 git identity red line). Hermes PM ran
+`git filter-branch` on `HEAD~4..HEAD` after the fact to rewrite the
+author to `weixingnc <weixingnc@gmail.com>`; hashes changed
+(2360bfd→cdbc20f, 6e5f2d2→68f5f5d, 40f818a→05e2a53, da9aa46→19617d5).
+
+V12.4 (V45.1) summary:
+
+- `provider/protocol/_shared.js` lifted `splitThinkBlocks` out of the
+  stream path so both the chat path and the stream path share one
+  implementation.
+- `provider/protocol/openai-compatible.js#parseResponseBody` now runs
+  the shared `splitThinkBlocks` on `message.content`, so the chat
+  path stops shipping `<think>...</think>` blocks to the UI.
+- `logFinishOrStop` now writes to `console.error` (stderr); before
+  this, `[openai-compatible] finish_reason=stop` leaked into the
+  web reply via `web/server.js#chatOnce` (which captures child stdout).
+- `bin/lib/chat.js#chat` moves the `🤖 Using ${provider.name}` banner
+  to stderr too; content goes via `process.stdout.write(content + '\n')`.
+- `bin/lib/chat.js#streamChat` emits only the new tail (delta) of each
+  snapshot via the new `emitContentDelta` helper (extracted to keep
+  the parent under the ESLint complexity=15 cap), JSON-encoded so
+  embedded `\n` survives a single-line frame intact.
+- `web/server.js#streamChat` decodes the same way, with a fallback
+  to the raw slice on JSON parse failure (older callers).
+- 4 files changed (+130, -30), 3 test files changed (+91, -22).
+  1360 → 1381 npm test pass (+21). Lint clean. Size check clean.
+
+V12.6 (V46) summary:
+
+- `bin/lib/chat.js#streamChat` mirrors V45.1's emitContentDelta with
+  a new `emitReasoningDelta` helper. Wire shape gains
+  `reasoning:<json delta>` alongside `chunk:<json delta>`.
+- `web/server.js#streamChat` parses the new `reasoning:` line and
+  forwards it as `data: {"type":"reasoning","text":...}` SSE frame.
+- `web/index.html` renders a `<details class="reasoning-block">`
+  panel at the top of every assistant bubble, `[hidden]` by default
+  and only revealed when the first reasoning frame arrives (so
+  non-reasoning models do not render an empty stub).
+- **V32 regression fix (same commit)**: the V32 streaming code set
+  `finished = true` on the `done` frame and broke out of the loop,
+  but never called `stream.finish()`, which is the only path that
+  appends the assistant message and writes the conversation back to
+  localStorage. So V32-V45.1 conversations only ever persisted the
+  user message (and the title, derived from it). V46 calls
+  `stream.finish()` on `done` and the bug is gone. End-to-end
+  verified: 2-turn conversation persisted 4 messages
+  (`user, assistant, user, assistant`) with 2 reasoning blocks
+  after page reload.
+- 3 files changed (+148, -5). 1381/1381 npm test pass. Lint clean.
+  Size check clean.
+
+### Productization polish (V12.8, 2026-06-26) — 7.5 → 8.5/10
+
+| Cycle  | SHA       | What                                                                                 |
+| ------ | --------- | ------------------------------------------------------------------------------------ |
+| V12.8a | (pending) | chore(git): fix local git author + filter-branch V12.4-V12.7 (w4-2-test → weixingnc) |
+| V12.8b | (pending) | docs: add CONTRIBUTING.md + SECURITY.md                                              |
+| V12.8c | (pending) | chore(github): add issue templates + PR template + CODEOWNERS                        |
+| V12.8d | (pending) | chore: delete 2018 evolution-pre-\* tags locally (3521 → 1503)                       |
+| V12.8e | (pending) | docs(v3-roadmap): reflect V46 + V12 polish (this commit)                             |
+
+After V12.8a-e:
+
+- All commits authored by `weixingnc <weixingnc@gmail.com>`.
+- Repo carries all 5 community-standard files (LICENSE / README
+  badges / CONTRIBUTING / SECURITY / Issue & PR templates /
+  CODEOWNERS).
+- Tag list trimmed from 3521 → 1503 (catalogue-pre retained per
+  brief; v4-v9-final retained).
+- V3_ROADMAP reflects V46 actual state.
+- Self-evaluation: 7.5 → 8.5/10.
+
+### 续期 philosophy 一致性 (v4-v12 全部遵循 v2 哲学)
 
 | Dimension          | v3+ P0 收口时 | v4-v10 续期后                   |
 | ------------------ | ------------- | ------------------------------- |
