@@ -6,6 +6,64 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 as of v0.2.0 (currently still v0.1.0; v1.0.0 cut deferred to V22 multi-Darwin
 federation -- planned 2026-Q4).
 
+### Added (V46, 2026-06-25)
+
+- **V46 collapsible reasoning panel + V32 persistence bug fix**
+  (`fix(web): v32 stream persistence + v46 reasoning collapse panel`):
+  V45 split out a separate `ev.reasoning` channel on the stream
+  protocol (DeepSeek R1 / Qwen QwQ / GLM Z1 / MiniMax-M3 chain of
+  thought) but noted "Reasoning can be exposed later... by reading
+  ev.reasoning on the consumer side". V46 reads it on every layer
+  and ships it as a Cursor / ChatGPT style collapsible "Reasoning"
+  panel above the visible answer. As a side effect of testing
+  persistence, V46 also fixes a long-latent V32 bug where
+  assistant messages never made it to localStorage -- the
+  streaming code set `finished = true` on the `done` frame and
+  broke out of the loop, but never called `stream.finish()`, which
+  is the only path that appends the assistant message and writes
+  the conversation back to localStorage.
+  - **Wire shape extension** (`bin/darwin chat --stream`):
+    `chunk:<json delta>` was joined by `reasoning:<json delta>`.
+    `emitReasoningDelta` helper mirrors `emitContentDelta` (V45.1)
+    and keeps streamChat under the ESLint complexity=15 cap. Same
+    json-encode trick so embedded `\n` in reasoning survives a
+    single-line frame intact.
+  - **SSE forwarding** (`web/server.js#streamChat`):
+    the `reasoning:` line parses the same way as `chunk:` --
+    json-decode with a fallback to the raw slice on parse failure
+    (older callers). Empty strings are dropped so a model that
+    emits a placeholder reasoning frame for a non-reasoning model
+    does not flicker an empty panel.
+  - **UI** (`web/index.html`):
+    - `<details class="reasoning-block">` panel at the top of every
+      assistant bubble. `[hidden]` by default; only revealed when
+      the first reasoning frame arrives, so non-reasoning models
+      do not render an empty stub.
+    - Summary shows "Reasoning" with a `▸` / `▾` caret (CSS-only
+      toggle, no JS handler needed).
+    - `<pre>` inside holds the live text. max-height 16rem +
+      overflow-y: auto, so a long reasoning block scrolls inside
+      the panel instead of pushing the visible answer off-screen.
+    - `setReasoning(text)` method on the streaming handle: appends
+      the delta, reveals the panel, scrolls into view.
+    - `renderMessages(conv)` (V43 history renderer) reads
+      `m.reasoning` from persisted messages and re-populates the
+      panel -- V46+ conversations preserve the thinking text
+      across page reload. V43-V45.1 messages without the field
+      render with the panel hidden (correct behaviour for the
+      non-reasoning / pre-V46 era).
+  - **V32 bug fix** (same commit):
+    call `stream.finish()` on the `done` frame before
+    `finished = true; break`. end-to-end verified: 2-turn
+    conversation persisted 4 messages (`user, assistant, user,
+assistant`) with 2 reasoning blocks after page reload.
+  - 3 files changed (+148, -5).
+  - **Hard-boundary note**: V46 stays inside the V43 web UI
+    boundary (`bin/lib/chat.js` line-protocol only, `web/server.js`
+    SSE forwarder, `web/index.html` UI). No `provider/*` change.
+    The V45 / V45.1 reasoning-content extraction is unchanged;
+    V46 just wires the existing channel through to the UI.
+
 ### Fixed (V45.1, 2026-06-25)
 
 - **V45.1 web chat: clean json + real sse deltas + no think leakage**
@@ -39,20 +97,16 @@ federation -- planned 2026-Q4).
     accumulated text starts with `\n\n` on DeepSeek R1, and the web
     server's per-`\n` parser split the frame into `"chunk:"`, `""`,
     and the raw reply text -- only the first line started with
-    `chunk:`, so only the empty frame was forwarded.
-    - `bin/lib/chat.js#streamChat` now emits only the new tail
-      (delta) of each snapshot via a new `emitContentDelta` helper
-      (extracted to keep the parent under the ESLint complexity=15
-      cap).
-    - Chunk text is `JSON.stringify`-encoded so any embedded `\n`
-      in the reply survives a single-line frame intact.
-    - `web/server.js#streamChat` decodes the same way (with a
-      fallback to the raw slice on parse failure for older callers).
-    - End-to-end on a real DeepSeek R1 reply:
-      `data: {"type":"chunk","text":"\n2026年最核心"}` ->
-      `data: {"type":"chunk","text":"趋势是AI智能体..."}` ->
-      `data: {"type":"done"}` (incremental, two frames, no empty
-      frames).
+    `chunk:`, so only the empty frame was forwarded. - `bin/lib/chat.js#streamChat` now emits only the new tail
+    (delta) of each snapshot via a new `emitContentDelta` helper
+    (extracted to keep the parent under the ESLint complexity=15
+    cap). - Chunk text is `JSON.stringify`-encoded so any embedded `\n`
+    in the reply survives a single-line frame intact. - `web/server.js#streamChat` decodes the same way (with a
+    fallback to the raw slice on parse failure for older callers). - End-to-end on a real DeepSeek R1 reply:
+    `data: {"type":"chunk","text":"\n2026年最核心"}` ->
+    `data: {"type":"chunk","text":"趋势是AI智能体..."}` ->
+    `data: {"type":"done"}` (incremental, two frames, no empty
+    frames).
   - **Shared helper**:
     `splitThinkBlocks` was lifted out of
     `provider/protocol/openai-compatible-stream.js` into
