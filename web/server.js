@@ -87,6 +87,18 @@ const AUTH_TOKEN = process.env.WEB_AUTH_TOKEN || null;
 // V33: when AUTH_TOKEN is null/undefined, auth is disabled (V28 compat
 // for direct `node web/server.js` users who did not go through the CLI).
 
+// V48 (security): CORS origin allowlist. Default = empty (same-origin only).
+// Set CORS_ORIGIN to a comma-separated list of allowed origins (e.g.
+// "http://localhost:3000,https://myapp.com") to enable cross-origin access.
+// Use "*" to allow any origin (NOT recommended when AUTH_TOKEN is set, since
+// stolen tokens have no same-origin protection in that mode).
+const CORS_ORIGIN = (process.env.CORS_ORIGIN || '').trim();
+const CORS_ALLOWED_ORIGINS = CORS_ORIGIN
+  ? CORS_ORIGIN.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  : [];
+
 // Constant-time string comparison. Returns true if both are equal.
 function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') {
@@ -120,8 +132,8 @@ function extractToken(req, url) {
 }
 
 // V33: 401 response with a clear JSON body + a WWW-Authenticate hint.
-function deny(res) {
-  setCors(res);
+function deny(req, res) {
+  setCors(req, res);
   res.statusCode = 401;
   res.setHeader('WWW-Authenticate', 'Bearer realm="darwin-web", charset="utf-8"');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -168,7 +180,7 @@ function requireAuth(req, res, url) {
   if (candidate && safeEqual(candidate, AUTH_TOKEN)) {
     return true;
   }
-  deny(res);
+  deny(req, res);
   return false;
 }
 
@@ -280,7 +292,7 @@ function chatOnce(messages) {
   });
 }
 
-function streamChat(res, messages) {
+function streamChat(req, res, messages) {
   const messagesJson = JSON.stringify(messages);
   const child = spawn(
     process.execPath,
@@ -293,7 +305,7 @@ function streamChat(res, messages) {
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  setCors(res);
+  setCors(req, res);
   res.flushHeaders?.();
 
   let buf = '';
@@ -416,33 +428,58 @@ function streamChat(res, messages) {
   });
 }
 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+function setCors(req, res) {
+  // V48 (security): CORS is opt-in via CORS_ORIGIN env var.
+  // Default behavior (no env var): same-origin only — no Access-Control-Allow-Origin
+  // header at all, so the browser blocks cross-origin XHR/fetch.
+  const origin = req.headers.origin;
+  if (CORS_ALLOWED_ORIGINS.includes('*')) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Darwin-Token');
+  // V48 (security): basic web hardening headers. These are safe defaults
+  // for a localhost-only control-plane UI; they tighten behavior even when
+  // auth is disabled.
+  // - CSP: only self + inline (we use inline styles in index.html). No remote scripts.
+  //   Upgrade-insecure-requests would force HTTPS, but the server is HTTP-only by
+  //   default, so omit that directive to avoid mixed-content confusion.
+  // - X-Content-Type-Options: prevent MIME sniffing.
+  // - X-Frame-Options: deny embedding (anti-clickjacking).
+  // - Referrer-Policy: don't leak the bearer token via Referer header.
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'",
+  );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
 }
 
-function send(res, status, body, contentType = 'application/json') {
-  setCors(res);
+function send(req, res, status, body, contentType = 'application/json') {
+  setCors(req, res);
   res.statusCode = status;
   res.setHeader('Content-Type', contentType + '; charset=utf-8');
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
 
-async function handleOptions(_req, res) {
-  setCors(res);
+async function handleOptions(req, res) {
+  setCors(req, res);
   res.statusCode = 204;
   res.end();
   return true;
 }
 
-async function handleGetRoot(_req, res) {
-  send(res, 200, INDEX_HTML, 'text/html');
+async function handleGetRoot(req, res) {
+  send(req, res, 200, INDEX_HTML, 'text/html');
   return true;
 }
 
-async function handleGetHealth(_req, res) {
-  send(res, 200, { ok: true, version: VERSION, auth_required: !!AUTH_TOKEN });
+async function handleGetHealth(req, res) {
+  send(req, res, 200, { ok: true, version: VERSION, auth_required: !!AUTH_TOKEN });
   return true;
 }
 
@@ -463,35 +500,35 @@ const STATIC_TYPES = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain',
 };
-function handleGetStatic(_req, res, _url, relPath) {
+function handleGetStatic(req, res, _url, relPath) {
   if (!relPath) {
-    send(res, 400, { error: 'bad path' });
+    send(req, res, 400, { error: 'bad path' });
     return true;
   }
   if (relPath.includes('..') || relPath.startsWith('/')) {
-    send(res, 400, { error: 'bad path' });
+    send(req, res, 400, { error: 'bad path' });
     return true;
   }
   const filePath = join(__dirname, relPath);
   if (!filePath.startsWith(__dirname + '/') && filePath !== __dirname) {
-    send(res, 400, { error: 'bad path' });
+    send(req, res, 400, { error: 'bad path' });
     return true;
   }
   if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-    send(res, 404, { error: 'not found' });
+    send(req, res, 404, { error: 'not found' });
     return true;
   }
   const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
   const ct = STATIC_TYPES[ext] || 'application/octet-stream';
   try {
     const body = readFileSync(filePath);
-    setCors(res);
+    setCors(req, res);
     res.statusCode = 200;
     res.setHeader('Content-Type', ct + '; charset=utf-8');
     res.setHeader('Content-Length', body.length);
     res.end(body);
   } catch (e) {
-    send(res, 500, { error: e.message });
+    send(req, res, 500, { error: e.message });
   }
   return true;
 }
@@ -501,26 +538,26 @@ async function handlePostChat(req, res) {
   try {
     body = await readJson(req);
   } catch (e) {
-    send(res, 400, { error: e.message });
+    send(req, res, 400, { error: e.message });
     return true;
   }
   // V47: accept messages[] (multi-turn) or message (legacy single).
   const parsed = parseMessagesBody(body);
   if (parsed.error) {
-    send(res, 400, { error: parsed.error });
+    send(req, res, 400, { error: parsed.error });
     return true;
   }
   const messages = parsed.messages;
   const accept = String(req.headers['accept'] || '').toLowerCase();
   if (accept.includes('text/event-stream')) {
-    streamChat(res, messages);
+    streamChat(req, res, messages);
     return true;
   }
   try {
     const reply = await chatOnce(messages);
-    send(res, 200, { reply });
+    send(req, res, 200, { reply });
   } catch (e) {
-    send(res, 500, { error: e.message });
+    send(req, res, 500, { error: e.message });
   }
   return true;
 }
@@ -579,12 +616,12 @@ async function readWebhookBody(req) {
 async function handlePostWebhook(req, res, _url, channel) {
   const auth = authorizeChannel(req, channel);
   if (!auth.ok) {
-    send(res, auth.status, { error: auth.error, channel });
+    send(req, res, auth.status, { error: auth.error, channel });
     return true;
   }
   const parsed = await readWebhookBody(req);
   if (!parsed.ok) {
-    send(res, parsed.status, { error: parsed.error });
+    send(req, res, parsed.status, { error: parsed.error });
     return true;
   }
   const { message, replyUrl, userId, meta } = parsed.value;
@@ -592,7 +629,7 @@ async function handlePostWebhook(req, res, _url, channel) {
   try {
     reply = await chatSync(message);
   } catch (e) {
-    send(res, 500, { error: e.message, channel, delivered: false });
+    send(req, res, 500, { error: e.message, channel, delivered: false });
     return true;
   }
   let delivery;
@@ -604,14 +641,14 @@ async function handlePostWebhook(req, res, _url, channel) {
       meta,
     });
   } catch (e) {
-    send(res, 200, {
+    send(req, res, 200, {
       status: 'chat_ok_delivery_failed',
       channel,
       delivery_error: e.message,
     });
     return true;
   }
-  send(res, 200, {
+  send(req, res, 200, {
     status: delivery.ok ? 'delivered' : 'delivery_failed',
     channel,
     delivery_status: delivery.status,
@@ -619,8 +656,8 @@ async function handlePostWebhook(req, res, _url, channel) {
   return true;
 }
 
-async function handleNotFound(_req, res) {
-  send(res, 404, { error: 'not found' });
+async function handleNotFound(req, res) {
+  send(req, res, 404, { error: 'not found' });
   return true;
 }
 
@@ -757,6 +794,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       process.stdout.write('Auth: WEB_AUTH_TOKEN is set; non-health routes require it.\n');
     } else {
       process.stdout.write('Auth: WEB_AUTH_TOKEN not set; all routes open (V28 compat).\n');
+    }
+    if (CORS_ALLOWED_ORIGINS.length === 0) {
+      process.stdout.write('CORS: same-origin only (set CORS_ORIGIN to allow cross-origin).\n');
+    } else if (CORS_ALLOWED_ORIGINS.includes('*')) {
+      process.stdout.write('CORS: * (any origin; not recommended with auth)\n');
+    } else {
+      process.stdout.write(`CORS: ${CORS_ALLOWED_ORIGINS.join(', ')}\n`);
     }
     process.stdout.write('Press Ctrl+C to stop.\n');
   });

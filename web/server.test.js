@@ -744,3 +744,107 @@ describe('web/server (V36) -- channel webhook', () => {
     );
   });
 });
+
+describe('web/server (V48) — security hardening (CORS + headers + HTML)', () => {
+  // V48: spawn a second server with CORS_ORIGIN set so we can exercise
+  // the allowlist path independently of the default same-origin test.
+  let corsProc;
+  let corsPort;
+  let corsBase;
+
+  before(async () => {
+    corsPort = 20000 + Math.floor(Math.random() * 1000);
+    corsBase = `http://127.0.0.1:${corsPort}`;
+    const tmpHome = mkdtempSync(join(tmpdir(), 'darwin-v48-cors-'));
+    corsProc = spawn(process.execPath, [SERVER_PATH], {
+      env: {
+        ...process.env,
+        PORT: String(corsPort),
+        HOST: '127.0.0.1',
+        HOME: tmpHome,
+        CORS_ORIGIN: 'http://allowed.example.com,http://127.0.0.1:3000',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    // Wait for "listening" banner.
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('v48 cors server did not start in 5s')), 5000);
+      corsProc.stdout.on('data', (c) => {
+        if (c.toString().includes('listening')) {
+          clearTimeout(t);
+          resolve();
+        }
+      });
+      corsProc.stderr.on('data', () => {});
+      corsProc.on('error', reject);
+    });
+  });
+
+  after(async () => {
+    if (corsProc && !corsProc.killed) {
+      corsProc.kill('SIGTERM');
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  });
+
+  test('CORS: allowlist match returns matching origin + Vary: Origin', async () => {
+    const r = await fetch(`${corsBase}/api/health`, {
+      headers: { Origin: 'http://allowed.example.com' },
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('access-control-allow-origin'), 'http://allowed.example.com');
+    assert.match(r.headers.get('vary') || '', /Origin/i);
+  });
+
+  test('CORS: non-matching origin returns NO Access-Control-Allow-Origin', async () => {
+    const r = await fetch(`${corsBase}/api/health`, {
+      headers: { Origin: 'http://evil.example.com' },
+    });
+    assert.equal(r.status, 200);
+    assert.equal(
+      r.headers.get('access-control-allow-origin'),
+      null,
+      'evil origin must not get Allow-Origin',
+    );
+  });
+
+  test('CORS: default (no env) on main server returns NO Access-Control-Allow-Origin', async () => {
+    const r = await http('GET', '/api/health');
+    assert.equal(r.status, 200);
+    assert.equal(
+      r.headers.get('access-control-allow-origin'),
+      null,
+      'default same-origin must not set Allow-Origin',
+    );
+  });
+
+  test('Security headers: CSP / X-Content-Type-Options / X-Frame-Options / Referrer-Policy', async () => {
+    const r = await http('GET', '/api/health');
+    const csp = r.headers.get('content-security-policy') || '';
+    assert.match(csp, /default-src 'self'/, 'CSP must restrict default-src');
+    assert.match(csp, /script-src 'self'/, 'CSP must restrict script-src');
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(r.headers.get('x-frame-options'), 'DENY');
+    assert.equal(r.headers.get('referrer-policy'), 'no-referrer');
+  });
+
+  test('OPTIONS /api/chat returns 204 + Allow-Methods includes PUT/DELETE', async () => {
+    const r = await http('OPTIONS', '/api/chat');
+    assert.equal(r.status, 204);
+    const methods = r.headers.get('access-control-allow-methods') || '';
+    assert.match(methods, /PUT/);
+    assert.match(methods, /DELETE/);
+  });
+
+  test('index.html: providerModal has no class="hidden" (was blocking Add button)', () => {
+    const html = readFileSync(join(REPO_ROOT, 'web', 'index.html'), 'utf8');
+    // The modal must NOT have both class="hidden" and the hidden attribute;
+    // the JS only toggles the attribute, so the CSS class would pin display:none.
+    assert.ok(
+      !/id="providerModal"[^>]*class="[^"]*\bhidden\b/.test(html),
+      'providerModal must not have class="hidden" (would block Add button)',
+    );
+    // The hidden attribute is OK — that's what the JS toggles.
+    assert.match(html, /id="providerModal"/);
+  });
+});
