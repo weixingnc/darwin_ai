@@ -1,0 +1,5 @@
+# Darwin CODEOWNERS
+# All PRs require review from the project lead.
+# Darwin's SelfEvolution is not authorised to push here.
+
+* @weixingnc

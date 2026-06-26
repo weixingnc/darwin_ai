@@ -1,0 +1,55 @@
+name: Feature Request
+description: Propose a new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the user-facing problem. Even small UX papercuts
+        count -- Darwin's SelfEvolution can grow the underlying
+        capability, but it needs a clear "what would the user
+        actually do differently" to drive a proposal.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        One paragraph. If you have a design in mind, link an ADR or
+        sketch.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope of change
+      description: |
+        Which paths would the change touch? `core/*`, `provider/*`,
+        `web/*`, `evolution/*`, `plugin/*`, `examples/*`? Darwin's
+        V3+ autonomous boundary excludes `core/*` and a few
+        others; mention this if your proposal crosses those.
+    validations:
+      required: false
+  - type: dropdown
+    id: self-evolve
+    attributes:
+      label: Could Darwin grow this itself?
+      options:
+        - yes -- Darwin can implement at runtime via evolution:apply
+        - partially -- needs a seed PR first
+        - no -- human-only
+      description: |
+        Darwin's SelfEvolution reads merged PRs as proposals and can
+        replicate the pattern at runtime. Some features (UI, install
+        scripts, ADRs) still need a human to seed.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
